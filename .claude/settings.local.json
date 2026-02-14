@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --version:*)",
+      "Bash(npm:*)",
+      "WebSearch",
+      "Bash(timeout 10 npx vite:*)",
+      "Bash(npx vite build:*)",
+      "Bash(timeout 5 node:*)",
+      "Bash(pkill:*)",
+      "Bash(ss:*)",
+      "Bash(netstat:*)",
+      "Bash(git init:*)",
+      "Bash(git config:*)"
+    ]
+  }
+}
