@@ -1,604 +1,375 @@
-# Graph Merge Visualizer - Technical Specification
+# Graph Merge Visualizer — Technical Specification
 
-## Original Prompt & Context
-
-**Problem Statement**: Build a web-based visual learning tool for understanding graph merge algorithms. The app displays 4 panels in 3 columns where users can create, edit, and merge directed graphs. Every change (edit or merge) creates a visual diff against the last-approved baseline, teaching users how graph merges work through interactive exploration.
-
-**Use Case**: Educational tool for understanding how graph merge algorithms work, particularly focusing on:
-- How merges combine two graphs
-- What happens when there are conflicts (property overwrites)
-- How directional locking prevents inconsistent merge states
-- Visual feedback through diff coloring (added/removed/modified)
-
-**Target Environment**: Raspberry Pi 5, hobby project (not enterprise-grade)
+**Project:** Graph Merge Visualizer
+**Purpose:** Educational web tool for learning graph merge algorithms through interactive visualization
+**Target Platform:** Raspberry Pi 5
+**Project Type:** Hobby project (not enterprise-grade)
+**Repository:** https://github.com/jakubtyniecki/graph-merge-viz (private)
 
 ---
 
-## Architecture Overview
+## Functional Requirements
+
+### Core Features
+
+1. **Multi-Panel Layout**
+   - Dynamic, user-controllable panel layout (not fixed grid)
+   - Default: 2 panels side-by-side
+   - Users can split panels horizontally or vertically
+   - Users can close panels (promote sibling)
+   - Minimum panel size: 200px
+
+2. **Graph Editing**
+   - Create nodes with labels (unique per graph)
+   - Create directed edges (source → target)
+   - Add arbitrary key-value properties to nodes and edges (string values)
+   - Edit existing properties
+   - Delete selected nodes/edges
+   - Clear entire graph
+
+3. **Graph Merging**
+   - Push graph from one panel to another (unidirectional)
+   - Incoming graph wins on property conflicts
+   - 5 merge cases:
+     1. Target empty → auto-approve, no diff
+     2. Target clean → snapshot current as baseline, apply merge, show diff
+     3. Target dirty (same direction) → apply merge, keep original baseline
+     4. Target dirty (different direction) → blocked with error
+     5. Conflicts → incoming wins
+   - Directional lock: first merge sets direction, subsequent merges must match
+
+4. **Visual Diff Feedback**
+   - Added nodes: green
+   - Removed nodes: red, dashed, semi-transparent (ghost elements)
+   - Modified properties: orange border
+   - Diff clears on approval
+   - Visual feedback via colors, not text-only
+
+5. **Approval Workflow**
+   - Every change creates diffs against last-approved baseline
+   - Approve button snapshots current state, clears diffs
+   - Allows users to track what changed and when
+
+6. **Session Management**
+   - Save/restore multiple sessions with names
+   - Session includes: layout tree + all panel states
+   - Auto-save on changes (debounced)
+   - Session switching without data loss
+   - Backward compatibility: auto-migrate old session format
+
+7. **Import/Export**
+   - Import graph from JSON file (modal file picker)
+   - Export single graph as JSON file (download)
+   - Copy selected subgraph (Ctrl+C)
+   - Paste subgraph into panel (Ctrl+V, triggers merge)
+
+8. **Merge Button UI**
+   - Merge buttons in resize gutter between adjacent panels
+   - Vertical split: `1 >> 2` (push) / `1 << 2` (pull)
+   - Horizontal split: `1 ▼▼ 2` (push) / `1 ▲▲ 2` (pull)
+   - Numbers stay positional (left/top first), arrows show direction
+   - Only between sibling panels
+
+9. **Keyboard Shortcuts**
+   - Ctrl+C: Copy selected subgraph
+   - Ctrl+V: Paste into focused panel
+   - Delete/Backspace: Delete selected elements
+   - Escape: Deselect all / close dialog
+
+---
+
+## Non-Functional Requirements
+
+### Performance
+- Handle graphs up to ~500 nodes without degradation
+- Layout computation < 500ms for typical graphs
+- Smooth resizing (60fps ideally)
+- Session save/load < 1s
+
+### Compatibility
+- Modern browsers (Chrome, Firefox, Safari, Edge)
+- Raspberry Pi 5 hardware (ARM64, Node.js v20+)
+- No external API calls or cloud dependencies
+- Works offline
+
+### Reliability
+- Data persistence via LocalStorage (~5-10 MB limit per site)
+- No data loss on browser refresh or session switch
+- Graceful error handling for invalid JSON imports
+- Prevent invalid graph states (e.g., edges to non-existent nodes)
+
+### Maintainability
+- Pure functions for all graph operations (testable, deterministic)
+- Clear separation: pure data layer (`graph/`) vs impure UI layer (`ui/`)
+- Immutable data structures (no in-place mutations)
+- Documented architecture decisions
+- No external database needed
+
+### User Experience
+- Intuitive UI with dark theme
+- Clear visual feedback (diffs, toasts, status info)
+- Responsive to all interactions
+- Help modal with keyboard shortcuts
+- Panel header shows: panel name, merge direction, approval time, change count
+
+---
+
+## Architecture
 
 ### Technology Stack
 
-- **Frontend Framework**: Vanilla JavaScript (ES modules, no framework overhead)
-- **Graph Rendering**: Cytoscape.js v3.33.1
-- **Layout Engine**: cytoscape-fcose v2.2.0 (force-directed layout)
-- **Build Tool**: Vite v7.3.1
-- **Server**: Express.js v5.2.1 (~15 lines, minimal)
-- **Runtime**: Node.js v20
-- **State Management**: LocalStorage for sessions, in-memory for panels
+**Frontend:**
+- **Framework:** Vanilla JavaScript (ES modules)
+- **Graph Rendering:** Cytoscape.js v3.33.1
+- **Layout Algorithm:** cytoscape-fcose v2.2.0 (force-directed)
+- **Build Tool:** Vite v7.3.1
+- **Styling:** CSS3 with CSS variables (dark theme)
 
-### Architecture Decisions
+**Backend:**
+- **Server:** Express.js v5.2.1 (minimal, ~15 lines)
+- **Runtime:** Node.js v20+
+- **State:** LocalStorage (no database)
 
-1. **No Framework Choice**: Vanilla JS chosen for simplicity and minimal overhead on Raspberry Pi 5
-2. **Cytoscape.js**: Industry-standard graph visualization library with excellent performance
-3. **Force-Directed Layout**: fcose algorithm provides natural graph layouts automatically
-4. **LocalStorage Sessions**: Simple persistence without database overhead
-5. **Express 5.x**: Latest version, minimal production server
+**Development:**
+- **Package Manager:** npm
+- **Module System:** ES modules
+- **Testing:** Manual (no automated tests yet)
 
----
+### Architectural Patterns
 
-## Layout & UI Structure
+1. **Functional Core, Imperative Shell**
+   - Pure functions: `graph/` layer (model, diff, merge, serializer)
+   - Impure operations: `ui/` layer (DOM, Cytoscape, localStorage)
+
+2. **Immutability**
+   - All graph operations return new objects
+   - No mutations of input data
+   - Enables undo/redo in future
+
+3. **Event-Driven UI**
+   - Custom 'panel-change' event for debounced auto-save
+   - Event delegation for action buttons
+   - Keyboard handlers for shortcuts
+
+4. **Recursive Layout Tree**
+   - Layout represented as recursive binary tree
+   - Split nodes: `{ type: "split", direction, children, sizes }`
+   - Panel nodes: `{ type: "panel", id }`
+   - Enables flexible, user-controlled layouts
+
+5. **State Preservation During Render**
+   - LayoutManager saves panel states before destroying
+   - After DOM rebuild, restores states to new panels
+   - Ensures no data loss during layout changes
+
+### Data Model
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│  App Header: Title + Session Controls (dropdown, new, rename)  │
-├──────────────┬────┬──────────────┬────┬──────────────┬─────────┤
-│  Panel 1.1   │    │              │    │              │         │
-│  (half)      │ ⇄  │  Panel 2.1   │ ⇄  │  Panel 3.1   │         │
-├──────────────┤    │  (full)      │    │  (full)      │         │
-│  Panel 1.2   │ ⇄  │              │ ⇄  │              │         │
-│  (half)      │    │              │    │              │         │
-├──────────────┤    ├──────────────┤    ├──────────────┤─────────┤
-│  [Actions]   │    │  [Actions]   │    │  [Actions]   │         │
-└──────────────┴────┴──────────────┴────┴──────────────┴─────────┘
-```
-
-**Gutter Buttons** (between columns):
-- 1.1 → 2.1, 1.2 → 2.1, 2.1 → 1.1, 2.1 → 1.2 (between columns 1-2)
-- 2.1 → 3.1, 3.1 → 2.1 (between columns 2-3)
-
-**Panel Action Bar**:
-- `+ Node`, `+ Edge`, `Edit`, `Delete`, `Clear`, `Approve`, `Import`, `Export`
-
-**Panel Header**:
-- Name (e.g., "Panel 1.1")
-- Status info: merge direction, last approval time, change count
-
----
-
-## Data Model
-
-### Core Types
-
-```javascript
-// Node identity: label (unique string)
 Node = {
-  label: string,          // Unique identifier
-  props: Record<string, string>  // Arbitrary key-value properties
+  label: string           // Unique identifier
+  props: Record<string, string>  // Key-value properties
 }
 
-// Edge identity: source + target pair
 Edge = {
-  source: string,         // Node label
-  target: string,         // Node label
+  source: string          // Node label
+  target: string          // Node label
   props: Record<string, string>
 }
 
-// Graph: collection of nodes and edges
 Graph = {
-  nodes: Node[],
+  nodes: Node[]
   edges: Edge[]
 }
 
-// Panel state: graph + metadata
 PanelState = {
-  id: "1.1" | "1.2" | "2.1" | "3.1",
-  graph: Graph,           // Current working state
-  baseGraph: Graph | null, // Snapshot at last approval (diff baseline)
-  mergeDirection: string | null, // e.g., "1.1 → 2.1" (locks further merges)
+  id: string              // Simple number: "1", "2", "3"...
+  graph: Graph
+  baseGraph: Graph | null // Snapshot at last approval (diff baseline)
+  mergeDirection: string | null  // e.g., "1 → 2"
   lastApproval: string | null    // ISO 8601 timestamp
 }
 
-// Diff entry: describes a single change
 DiffEntry = {
-  type: "node" | "edge",
-  action: "added" | "removed" | "modified",
-  key: string,            // node label or "source→target"
-  oldProps: object | null,
+  type: "node" | "edge"
+  action: "added" | "removed" | "modified"
+  key: string             // node label or "source→target"
+  oldProps: object | null
   newProps: object | null
 }
-```
 
-### Identity Rules
+LayoutNode =
+  | { type: "panel", id: string }
+  | { type: "split", direction: "h" | "v", children: [LayoutNode, LayoutNode], sizes: [number, number] }
 
-- **Nodes**: Identified by `label` (string)
-- **Edges**: Identified by `source + target` pair
-- **Props**: Flat key-value strings (no nesting)
-
----
-
-## Core Behaviors
-
-### 1. Approval Workflow
-
-**Problem**: Without approval, users would lose track of what changed.
-
-**Solution**: Every edit or merge creates diffs against `baseGraph` until user approves:
-
-```javascript
-// Initial state
-graph = baseGraph = null  // Clean, no colors
-
-// User adds node A
-graph = { nodes: [A] }
-baseGraph = null
-→ Diff: [{ type: "node", action: "added", key: "A" }]
-→ Visual: Node A is GREEN
-
-// User clicks Approve
-baseGraph = { nodes: [A] }
-→ Diff: []
-→ Visual: Node A becomes default color (clean)
-
-// User adds node B
-graph = { nodes: [A, B] }
-baseGraph = { nodes: [A] }
-→ Diff: [{ type: "node", action: "added", key: "B" }]
-→ Visual: Node B is GREEN, A is default
-```
-
-### 2. Merge/Push Logic
-
-**5 Cases**:
-
-1. **Target empty** → Copy graph, auto-approve
-   ```javascript
-   target.graph = source.graph
-   target.baseGraph = source.graph
-   target.mergeDirection = null
-   // No diff, clean state
-   ```
-
-2. **Target clean** → Set baseline, apply merge, show diff
-   ```javascript
-   target.baseGraph = target.graph  // Snapshot BEFORE merge
-   target.graph = merge(target.graph, source.graph)
-   target.mergeDirection = "1.1 → 2.1"
-   // Diff shows what came from source
-   ```
-
-3. **Target dirty + same direction** → Apply merge, keep original baseline
-   ```javascript
-   // Keep existing baseGraph (original snapshot)
-   target.graph = merge(target.graph, source.graph)
-   // Diff still computed against ORIGINAL baseGraph
-   ```
-
-4. **Target dirty + different direction** → BLOCKED
-   ```javascript
-   if (target.mergeDirection && target.mergeDirection !== direction) {
-     throw Error("Blocked: approve pending changes first")
-   }
-   ```
-
-5. **Conflicts** → Incoming wins (property overwrite)
-   ```javascript
-   // If both have node A with different props:
-   target.node.A.props = incoming.node.A.props  // Incoming wins
-   ```
-
-### 3. Diff Computation
-
-```javascript
-function computeDiff(baseGraph, currentGraph) {
-  // Node changes
-  for (node in currentGraph.nodes) {
-    if (!baseGraph.has(node)) → added (green)
-    else if (props differ) → modified (orange)
-  }
-  for (node in baseGraph.nodes) {
-    if (!currentGraph.has(node)) → removed (red, dashed, ghost)
-  }
-
-  // Edge changes (same logic)
+Session = {
+  layout: { tree: LayoutNode, nextId: number }
+  panels: Record<string, PanelState>
+  savedAt: string         // ISO 8601 timestamp
 }
 ```
 
-**Visual Mapping**:
-- **Added**: Green background/line (#4CAF50)
-- **Removed**: Red, dashed, semi-transparent (#F44336, opacity 0.5)
-- **Modified**: Orange border/line (#FF9800)
+---
 
-**Ghost Elements**: Removed nodes/edges stay visible (not hidden) until approval.
+## Key Design Decisions
 
-### 4. Directional Lock
+### Why Vanilla JavaScript?
+- Minimal overhead on Raspberry Pi 5
+- No framework complexity for educational tool
+- Direct DOM control for custom layout rendering
+- Smaller bundle size
 
-**Problem**: Without locking, users could merge from multiple directions and lose track.
+### Why Cytoscape.js?
+- Industry-standard graph visualization library
+- Excellent performance for typical graph sizes
+- Rich styling API (CSS-like selectors)
+- Force-directed layouts out of box (fcose)
 
-**Solution**: First merge sets `mergeDirection`, subsequent merges must match:
+### Why LocalStorage (not Database)?
+- Zero setup, works offline
+- Sufficient for hobby project scope (~5-10 MB)
+- No server infrastructure needed
+- Simple JSON serialization
 
-```javascript
-// Panel 2.1 is clean
-push(1.1 → 2.1)  // OK, sets mergeDirection = "1.1 → 2.1"
+### Why Immutable Data?
+- Predictable state changes
+- Easier reasoning about diffs
+- Foundation for undo/redo in future
+- Testable pure functions
 
-// Panel 2.1 now has pending changes (dirty)
-push(1.1 → 2.1)  // OK, same direction
-push(1.2 → 2.1)  // BLOCKED, different direction (1.2 vs 1.1)
-push(3.1 → 2.1)  // BLOCKED, different direction
+### Why Event Delegation?
+- Dynamic panels don't exist at startup
+- Centralized event handling (main.js)
+- Scalable to many panels without per-panel listeners
 
-// User approves
-// Panel 2.1 is clean again
-push(3.1 → 2.1)  // OK, new direction allowed
-```
+### Why Recursive Split Tree?
+- Flexible layout (not constrained to grid)
+- Preservable as JSON (for session persistence)
+- Composable: tree structure mirrors UI hierarchy
+- Elegant split/close operations
 
 ---
 
-## File Structure
+## User Workflows
 
-```
-graph-merge/
-├── package.json              # npm scripts, dependencies
-├── vite.config.js            # Vite config (root: src, allowedHosts)
-├── server.js                 # Express production server (HOST/PORT env)
-├── SPEC.md                   # This file
-├── README.md                 # User-facing docs (usage, install)
-├── src/
-│   ├── index.html            # App shell: header, 3-column grid, panels
-│   ├── main.js               # Entry point: init panels, wire events
-│   ├── style.css             # Dark theme, CSS grid, dialogs, toasts
-│   │
-│   ├── graph/                # Pure data layer (no DOM, no side effects)
-│   │   ├── model.js          # Graph CRUD: createGraph, addNode, removeNode
-│   │   ├── diff.js           # computeDiff(base, current) → DiffEntry[]
-│   │   ├── merge.js          # mergeGraphs(target, incoming) → Graph
-│   │   └── serializer.js     # JSON import/export, validation
-│   │
-│   ├── ui/                   # Impure UI layer (DOM, Cytoscape, localStorage)
-│   │   ├── panel.js          # Panel class: Cytoscape + state + merge logic
-│   │   ├── dialogs.js        # Modal dialogs: add node/edge, edit props
-│   │   ├── session.js        # Session management: localStorage CRUD
-│   │   ├── clipboard.js      # Copy/paste subgraph (Ctrl+C/V)
-│   │   └── toast.js          # Toast notifications
-│   │
-│   └── cytoscape/
-│       └── styles.js         # Cytoscape stylesheet (base + diff classes)
-```
+### Workflow 1: Explore Merge Algorithm
+1. Create graph in panel 1 (add nodes A, B, C; add edges A→B, B→C)
+2. Modify panel 1 (change properties, see green diffs)
+3. Approve panel 1 (diffs clear, baseline set)
+4. Create different graph in panel 2
+5. Merge panel 1 into panel 2 (click `1 >> 2`)
+6. See merged result + diff colors showing what came from panel 1
+7. Modify merged result (new diffs appear)
+8. Try merging from different direction (blocked if dirty)
+9. Approve, then try merging from new direction (now allowed)
 
-### Module Responsibilities
+### Workflow 2: Manage Multiple Layouts
+1. Create session "experiment-1" with 2 panels
+2. Split panel 1 vertically (now 3 panels: 1, 3, 2)
+3. Add graphs to all panels
+4. Save (auto-saves via debounce)
+5. Create new session "experiment-2" (fresh 2 panels)
+6. Switch back to "experiment-1" (layout + graphs restored)
 
-**graph/model.js**: Pure functions for graph manipulation
-- `createGraph()`, `addNode()`, `removeNode()`, `addEdge()`, etc.
-- All functions return NEW graphs (immutable)
-- No Cytoscape, no DOM, no side effects
-
-**graph/diff.js**: Diff algorithm
-- `computeDiff(baseGraph, currentGraph) → DiffEntry[]`
-- Pure function, deterministic
-
-**graph/merge.js**: Merge algorithm
-- `mergeGraphs(target, incoming) → Graph`
-- Incoming wins on conflicts
-- Pure function
-
-**graph/serializer.js**: JSON import/export
-- `toJSON(graph)`, `fromJSON(jsonStr)`, `validateGraph(data)`
-- `importFromFile()` → Promise (file picker UI)
-- `exportToFile(graph, filename)` → void (download)
-
-**ui/panel.js**: Panel class (stateful)
-- Wraps Cytoscape instance
-- Manages `graph`, `baseGraph`, `mergeDirection`, `lastApproval`
-- Methods: `addNode()`, `approve()`, `receiveMerge()`, `deleteSelected()`
-- Syncs Cytoscape elements with graph data
-- Applies diff CSS classes
-
-**ui/dialogs.js**: Dialog functions
-- `addNodeDialog(panel)`, `addEdgeDialog(panel)`, `editSelectedDialog(panel)`
-- Uses native `<dialog>` element
-- Parses props from "key=value" textarea
-
-**ui/session.js**: Session management
-- `setupSession(panels)` → initializes
-- LocalStorage keys: `graph-merge-sessions`, `graph-merge-active-session`
-- Auto-save on changes (debounced 2s)
-- Session dropdown: create, rename, delete, switch
-
-**ui/clipboard.js**: Copy/paste
-- `setupClipboard(panels)` → initializes keyboard shortcuts
-- Ctrl+C: copy selected subgraph
-- Ctrl+V: paste to focused panel (uses `receiveMerge`)
-
-**ui/toast.js**: Notifications
-- `showToast(message, type, duration)`
-- Types: info, success, error
-
-**cytoscape/styles.js**: Cytoscape CSS
-- Base node/edge styles
-- Diff classes: `.diff-added`, `.diff-removed`, `.diff-modified`
+### Workflow 3: Copy Subgraph
+1. In panel 1, select node A and edge A→B (select multiple with click+drag)
+2. Press Ctrl+C (subgraph copied)
+3. Click in panel 2
+4. Press Ctrl+V (paste triggers merge logic)
+5. See diff colors for added elements
 
 ---
 
-## Testing & Verification
+## Testing Requirements
 
-### Manual Test Cases (from implementation plan)
+### Manual Test Coverage
+- All 5 merge cases execute correctly
+- Directional lock prevents invalid merges
+- Diffs visualize correctly (green/red/orange)
+- Approval clears diffs
+- Session save/restore preserves layout and graphs
+- Old session format migrates to new format
+- Split/close panels preserve graph states
+- Resize handles resize smoothly without losing data
+- Keyboard shortcuts work (Ctrl+C/V, Delete, Escape)
+- Import JSON validates and merges correctly
+- Export produces valid JSON
 
-1. ✅ `npm run dev` → opens in browser, 4 panels visible
-2. ✅ Create nodes/edges in panel 1.1 → diff colors appear → approve → clean
-3. ✅ Push 1.1 → 2.1 → green additions shown → approve
-4. ✅ Edit 2.1, push 2.1 → 3.1 → see merged diff
-5. ✅ Try cross-direction merge → blocked with error
-6. ✅ Export graph → edit JSON → import → diff shown
-7. ✅ Copy/paste between panels → merge logic applies
-8. ✅ Save session → refresh → restore → all state preserved
-9. ✅ `npm run build && npm start` → serves on configured port
-
-### Known Working State
-
-- Vite dev server: `npm run dev` → http://0.0.0.0:5173
-- Production build: `npm run build` → dist/
-- Production server: `npm start` → http://0.0.0.0:3000
-- Tailscale access: Configured via `allowedHosts: ['all', 'malina.tail5985a4.ts.net']`
-- Platform: Raspberry Pi 5, Node v20.19.5
-
----
-
-## Key Implementation Details
-
-### Graph → Cytoscape Sync
-
-```javascript
-// Panel._syncCytoscape()
-// 1. Clear Cytoscape elements
-// 2. Add current nodes/edges from graph
-// 3. Add "ghost" removed elements from baseGraph (for diff viz)
-// 4. Run layout (fcose for multi-node, grid for single)
-```
-
-**Props Flattening**: Node/edge props stored as `p_key` in Cytoscape data:
-```javascript
-node.props = { color: "blue", weight: "5" }
-→ Cytoscape: { id: "A", label: "A", p_color: "blue", p_weight: "5" }
-```
-
-### Diff Class Application
-
-```javascript
-// Panel._applyDiffClasses()
-const diffs = computeDiff(baseGraph, graph)
-for (diff of diffs) {
-  if (diff.action === "removed") continue  // handled in _syncCytoscape
-  cy.$id(diff.key).addClass(`diff-${diff.action}`)
-}
-```
-
-**Removed Elements**: Added during sync with `classes: 'diff-removed'` and red/dashed styles.
-
-### Session Auto-Save
-
-```javascript
-// ui/session.js
-window.addEventListener('panel-change', debouncedSave)
-
-// Panel._emitChange()
-window.dispatchEvent(new CustomEvent('panel-change', { detail: { panelId } }))
-```
-
-**Debounce**: 2 seconds to avoid excessive localStorage writes.
-
-### Keyboard Shortcuts
-
-| Shortcut | Action |
-|----------|--------|
-| Ctrl+C | Copy selected subgraph |
-| Ctrl+V | Paste to focused panel |
-| Delete | Delete selected elements |
-| Escape | Deselect all / close dialog |
+### Known Limitations (Acceptable)
+- No automated test suite
+- No undo/redo
+- Properties are strings only (no nested objects)
+- Performance degrades >500 nodes
+- Mobile layout not optimized
+- No accessibility improvements yet
+- No multi-user collaboration
 
 ---
 
-## Functional Paradigm Choices
+## Deployment & Operations
 
-### Pure vs Impure Separation
-
-**Pure Layer** (`graph/`):
-- All functions return new data (no mutation)
-- No DOM access, no Cytoscape, no localStorage
-- Deterministic: same input → same output
-- Testable in Node.js without browser
-
-**Impure Layer** (`ui/`):
-- Panel class manages Cytoscape instance
-- Dialogs manipulate DOM
-- Session writes to localStorage
-- Event listeners, side effects
-
-### Immutability
-
-```javascript
-// BAD (mutation)
-function addNode(graph, node) {
-  graph.nodes.push(node)  // Mutates input
-  return graph
-}
-
-// GOOD (immutable)
-function addNode(graph, node) {
-  return {
-    nodes: [...graph.nodes, node],  // New array
-    edges: [...graph.edges]          // New array
-  }
-}
-```
-
-**Why**: Enables:
-- Undo/redo (future feature)
-- Time-travel debugging
-- Reliable diff computation
-- No accidental state corruption
-
----
-
-## Future Enhancement Ideas
-
-### Potential Features (not implemented)
-
-1. **Undo/Redo**: Leverage immutable graph history
-2. **Multi-select operations**: Bulk property edits
-3. **Graph templates**: Presets (tree, DAG, cycle)
-4. **Export to PNG/SVG**: Save visual representation
-5. **Collaborative mode**: Multi-user editing (WebSocket)
-6. **Diff algorithms**: Different merge strategies (3-way, recursive)
-7. **Property validation**: Schema enforcement
-8. **Search/filter**: Find nodes by property
-9. **Zoom/pan controls**: Better navigation for large graphs
-10. **Nested properties**: JSON objects instead of flat strings
-
-### Technical Debt
-
-1. **No automated tests**: Manual testing only
-2. **Bundle size**: Cytoscape is 586 kB (consider code-splitting)
-3. **Accessibility**: No ARIA labels, keyboard nav incomplete
-4. **Mobile**: Layout not optimized for small screens
-5. **Error handling**: Some edge cases not covered (e.g., circular deps)
-
----
-
-## Development Workflow
-
-### Local Development
-
+### Development
 ```bash
-# Install
-npm install
-
-# Dev server (HMR enabled)
-npm run dev
-# → http://0.0.0.0:5173
-
-# Production build
-npm run build
-# → dist/
-
-# Production server
-npm start
-# → http://0.0.0.0:3000 (serves dist/)
+npm install              # Install dependencies
+npm run dev              # Vite dev server (port 5173 + HMR)
+npm run build            # Build for production → dist/
 ```
 
-### Environment Variables
-
-**server.js**:
-- `HOST`: Default `0.0.0.0`
-- `PORT`: Default `3000`
-
-Example:
+### Production
 ```bash
-HOST=localhost PORT=8080 npm start
+npm start                # Express server (port 3000, serves dist/)
+HOST=0.0.0.0 PORT=3000  # Configurable via environment
 ```
 
-### Debugging
+### Environment Setup
+- **Node.js:** v20+ required
+- **Platform:** Raspberry Pi 5 (ARM64)
+- **Network:** Tailscale configured for remote access (malina.tail5985a4.ts.net)
+- **Hosting:** Local network only (no cloud)
 
-**Browser Console**:
-```javascript
-window.__panels  // Map of panel instances
-window.__panels.get('1.1').cy  // Cytoscape instance
-window.__panels.get('1.1').graph  // Current graph data
-```
-
-**Vite HMR**: Hot module replacement works for all `.js`, `.css` changes.
-
----
-
-## Architectural Trade-offs
-
-### Decisions Made
-
-1. **Vanilla JS vs React/Vue**
-   - ✅ Simpler, smaller bundle, less overhead
-   - ❌ More manual DOM management, no component model
-
-2. **LocalStorage vs Database**
-   - ✅ Zero setup, works offline, simple
-   - ❌ Size limit (5-10 MB), no multi-device sync
-
-3. **Cytoscape vs D3/custom**
-   - ✅ Batteries-included, excellent layouts
-   - ❌ Large bundle size, learning curve
-
-4. **Force-directed layout vs Manual**
-   - ✅ Automatic, looks good for most graphs
-   - ❌ Can be chaotic for large graphs
-
-5. **Immutable data vs Mutable**
-   - ✅ Predictable, easier to reason about
-   - ❌ More memory allocations (acceptable for small graphs)
-
-6. **Native `<dialog>` vs Modal library**
-   - ✅ No dependencies, native API
-   - ❌ Limited styling, browser support (good enough for modern browsers)
+### Session Backup
+- Sessions stored in browser LocalStorage
+- Export graphs as JSON for manual backup
+- No automatic server-side persistence
 
 ---
 
-## Known Limitations
+## Success Criteria
 
-1. **Graph size**: Performance degrades beyond ~500 nodes (Cytoscape rendering)
-2. **Session limit**: LocalStorage ~5 MB (thousands of nodes possible)
-3. **No conflict resolution UI**: Incoming always wins (by design)
-4. **No multi-panel merge**: Can only merge from one source at a time
-5. **Properties are strings**: No typed values (numbers, booleans, dates)
-6. **No edge labels**: Properties not shown on edges (only in edit dialog)
-7. **Layout resets on change**: No position persistence
+✅ **Implemented**
+1. Dynamic multi-panel layout with split/close
+2. Graph editing (nodes, edges, properties)
+3. All 5 merge cases with directional lock
+4. Visual diff feedback (colors, ghost elements)
+5. Approval workflow
+6. Session management (save, restore, migrate old format)
+7. Import/export
+8. Copy/paste subgraph
+9. Merge buttons with correct formatting
+10. Keyboard shortcuts
 
----
-
-## Design Philosophy
-
-### KISS (Keep It Simple, Stupid)
-- No over-engineering: build what's needed now
-- Vanilla JS over framework complexity
-- LocalStorage over database setup
-
-### DRY (Don't Repeat Yourself)
-- Graph operations in `graph/model.js` (reusable)
-- Diff algorithm centralized in `diff.js`
-- Cytoscape styles in one place
-
-### YAGNI (You Aren't Gonna Need It)
-- No backend API (LocalStorage sufficient)
-- No authentication (single-user tool)
-- No complex state management (plain objects enough)
-
-### Functional Core, Imperative Shell
-- Pure functions (`graph/`) → easy to test, reason about
-- Impure shell (`ui/`) → handles I/O, DOM, side effects
+⏳ **Future**
+1. Automated test suite
+2. Undo/redo
+3. Better error UI for merge conflicts
+4. Search/filter nodes
+5. Graph templates
+6. Collaborative editing
 
 ---
 
 ## Glossary
 
-- **Panel**: One of 4 graph canvases (1.1, 1.2, 2.1, 3.1)
-- **Graph**: Collection of nodes and edges
-- **Node**: Vertex in graph, identified by label
-- **Edge**: Directed connection from source to target
-- **Baseline**: Snapshot of graph at last approval (stored in `baseGraph`)
-- **Diff**: Difference between baseline and current graph
-- **Merge**: Combining two graphs (incoming wins on conflicts)
-- **Push**: Merging one panel's graph into another
-- **Approve**: Accepting pending changes, clearing diff colors
-- **Clean**: Panel with no pending changes (graph === baseGraph)
-- **Dirty**: Panel with pending changes (diff not empty)
-- **Directional Lock**: Once dirty from a merge, panel only accepts merges from same direction
-- **Ghost Element**: Removed node/edge still visible for diff visualization
-
----
-
-## Contact & Maintenance
-
-**Created**: 2026-02-13
-**Platform**: Raspberry Pi 5
-**Node Version**: v20.19.5
-**Purpose**: Educational tool for learning graph merge algorithms
-
-**Maintenance Notes**:
-- No external dependencies beyond npm packages
-- All state in LocalStorage (no database cleanup needed)
-- Vite auto-updates handled by npm
-- Express 5.x uses new path syntax: `/{*path}` not `*`
+- **Panel:** One graph canvas with Cytoscape instance
+- **Graph:** Collection of nodes and edges
+- **Node:** Vertex with unique label and properties
+- **Edge:** Directed connection (source → target) with properties
+- **Merge:** Combine two graphs; incoming wins on conflicts
+- **Push:** Merge from source panel to target panel
+- **Baseline (baseGraph):** Snapshot at last approval; used to compute diff
+- **Diff:** Changes between baseline and current graph
+- **Clean:** No pending changes (graph === baseGraph)
+- **Dirty:** Pending changes exist (diff not empty)
+- **Directional Lock:** Panel only accepts merges from same source direction until approved
+- **Ghost Element:** Removed node/edge still visible (red, dashed) for diff visualization
+- **Split Tree:** Recursive binary tree representing panel layout
+- **Session:** Named snapshot of layout + all panel states

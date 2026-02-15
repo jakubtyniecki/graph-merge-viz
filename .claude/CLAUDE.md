@@ -219,11 +219,23 @@ window.__panels.get('1').graph // Current graph data
 
 ## Important Reminders for Future You
 
-1. **Always update this file** when making significant changes (new features, architecture shifts, bug fixes affecting behavior)
+1. **Always update SPEC.md + CLAUDE.md together** — SPEC.md is the source of truth for requirements; CLAUDE.md is implementation notes
+   - **Update SPEC.md when:** Functional requirements change, new features are planned, success criteria shift
+   - **Update CLAUDE.md when:** Implementation details change, architecture patterns used, debugging insights discovered
 
-2. **Keep SPEC.md separate** — it's the original requirements. This file is project-specific working notes.
+2. **SPEC.md format:**
+   - Keep it pure: functional + non-functional requirements, architecture, design decisions
+   - No implementation details (file names, function names, code snippets)
+   - Document what the app should do, not how it does it
+   - Update whenever user intent or application capability changes
 
-3. **Test layout changes thoroughly** — split tree is core. Any render changes can break state preservation.
+3. **CLAUDE.md format:**
+   - Project-specific working notes for handover to future sessions
+   - File structure, critical methods, debugging tips
+   - Document how you implemented things, not what they do
+   - Keep this as the "working memory" for quick context when picking up the project
+
+4. **Test layout changes thoroughly** — split tree is core. Any render changes can break state preservation.
 
 4. **Session format is critical** — migrations must be backwards-compatible. Test old sessions still load.
 
@@ -256,4 +268,14 @@ Edit .merge-gutter / .resize-handle / .merge-btn in style.css
 
 ---
 
-Last worked on: **2026-02-13** — Dynamic layout implementation complete, repo cleaned.
+---
+
+## References
+
+- **SPEC.md** — Requirements specification (what the app should do)
+- **README.md** — User-facing documentation
+- **GitHub:** https://github.com/jakubtyniecki/graph-merge-viz
+
+---
+
+Last worked on: **2026-02-13** — Dynamic layout implementation complete, repo cleaned, SPEC.md refactored as requirements doc.
