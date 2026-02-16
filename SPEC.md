@@ -63,8 +63,12 @@
 7. **Import/Export**
    - Import graph from JSON file (modal file picker)
    - Export single graph as JSON file (download)
-   - Copy selected subgraph (Ctrl+C)
-   - Paste subgraph into panel (Ctrl+V, triggers merge)
+   - Copy selected subgraph (Ctrl+C) — triggers merge with deletions
+   - Paste subgraph into panel (Ctrl+V) — additive-only (no deletions)
+   - Copy/paste branch (root + ancestors):
+     * Right-click node → "Copy Branch from X" (auto-selects branch for visual feedback)
+     * Right-click another node → "Paste Branch onto Y" (creates X→Y linking edge if Y ≠ X)
+   - Select branch: Right-click node → "Select Branch from X" (highlights ancestors + edges)
 
 8. **Merge Button UI**
    - Merge buttons in resize gutter between adjacent panels
@@ -302,7 +306,7 @@ Session = {
 
 ### Known Limitations (Acceptable)
 - No automated test suite
-- No undo/redo
+- No undo/redo (history stack exists, redo pending)
 - Properties are strings only (no nested objects)
 - Performance degrades >500 nodes
 - Mobile layout not optimized
@@ -344,14 +348,17 @@ HOST=0.0.0.0 PORT=3000  # Configurable via environment
 ✅ **Implemented**
 1. Dynamic multi-panel layout with split/close
 2. Graph editing (nodes, edges, properties)
-3. All 5 merge cases with directional lock
+3. All merge cases (2: empty target auto-approve vs normal merge)
 4. Visual diff feedback (colors, ghost elements)
 5. Approval workflow
 6. Session management (save, restore, migrate old format)
 7. Import/export
-8. Copy/paste subgraph
-9. Merge buttons with correct formatting
-10. Keyboard shortcuts
+8. Copy/paste subgraph (additive-only, no deletions)
+9. Copy/paste branch with linking edge
+10. Select branch (highlights ancestors + edges)
+11. Merge buttons with correct formatting
+12. Keyboard shortcuts
+13. Dialog positioning (centered on affected panel)
 
 ⏳ **Future**
 1. Automated test suite

@@ -10,16 +10,22 @@
   <header id="app-header">
     <h1>Graph Merge Visualizer</h1>
     <div id="header-controls">
-      <label for="layout-algo">Layout:</label>
-      <select id="layout-algo">
-        <option value="fcose">Force-Directed (fcose)</option>
-        <option value="circle">Circle</option>
-        <option value="concentric">Concentric</option>
-        <option value="breadthfirst">Breadth-First</option>
-        <option value="grid">Grid</option>
-      </select>
-      <button id="add-panel-btn" title="Add new panel">+ Panel</button>
-      <div id="session-controls"></div>
+      <div class="header-section">
+        <span class="header-section-label">Layout</span>
+        <select id="layout-algo">
+          <option value="fcose">Force-Directed (fcose)</option>
+          <option value="circle">Circle</option>
+          <option value="concentric">Concentric</option>
+          <option value="breadthfirst">Breadth-First</option>
+          <option value="grid">Grid</option>
+        </select>
+        <button id="add-panel-btn" title="Add new panel">+ Panel</button>
+      </div>
+      <span class="header-separator"></span>
+      <div class="header-section">
+        <span class="header-section-label">Session</span>
+        <div id="session-controls"></div>
+      </div>
     </div>
   </header>
 

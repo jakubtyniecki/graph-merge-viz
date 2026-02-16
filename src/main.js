@@ -2,9 +2,10 @@ import cytoscape from 'cytoscape';
 import fcose from 'cytoscape-fcose';
 import { Panel } from './ui/panel.js';
 import { LayoutManager } from './ui/layout.js';
-import { addNodeDialog, addEdgeDialog, editSelectedDialog, importGraphDialog, confirmDialog, infoDialog } from './ui/dialogs.js';
+import { addNodeDialog, addEdgeDialog, importGraphDialog, confirmDialog, infoDialog } from './ui/dialogs.js';
 import { setupSession } from './ui/session.js';
 import { setupClipboard } from './ui/clipboard.js';
+import { setupContextMenu } from './ui/context-menu.js';
 import { showToast } from './ui/toast.js';
 
 cytoscape.use(fcose);
@@ -16,6 +17,7 @@ const layoutManager = new LayoutManager(document.getElementById('app'), {
   onPanelCreate(id, canvasEl) {
     const panel = new Panel(id, canvasEl);
     panels.set(id, panel);
+    setupContextMenu(panel);
   },
 
   onPanelDestroy(id) {
@@ -63,7 +65,8 @@ const layoutManager = new LayoutManager(document.getElementById('app'), {
   async confirmClose(id) {
     return await confirmDialog(
       'Close Panel?',
-      `Close Panel ${id}? Graph data will be lost.`
+      `Close Panel ${id}? Graph data will be lost.`,
+      document.querySelector(`.panel[data-panel-id="${id}"]`)
     );
   },
 
@@ -96,12 +99,10 @@ document.getElementById('app').addEventListener('click', async e => {
   switch (btn.dataset.action) {
     case 'add-node': addNodeDialog(panel); break;
     case 'add-edge': addEdgeDialog(panel); break;
-    case 'edit': editSelectedDialog(panel); break;
-    case 'delete': panel.deleteSelected(); break;
     case 'clear': {
       const confirmed = await confirmDialog(
         'Clear Panel?',
-        `This will remove all nodes and edges from Panel ${panelId}.`,
+        `Reset Panel ${panelId} to empty state? This clears the graph, approval history, and all diffs.`,
         panelEl
       );
       if (confirmed) panel.clearGraph();
@@ -118,6 +119,10 @@ document.getElementById('app').addEventListener('click', async e => {
     }
     case 'undo': panel.undo(); break;
     case 'redo': panel.redo(); break;
+    case 'refresh':
+      panel.cy.resize();
+      panel._runLayout();
+      break;
     case 'restore': {
       const confirmed = await confirmDialog(
         'Restore Panel?',
@@ -141,6 +146,9 @@ layoutManager.init();
 // Setup session management and clipboard
 setupSession(panels, layoutManager);
 setupClipboard(() => panels);
+
+// Initial merge button state update
+requestAnimationFrame(() => layoutManager.updateMergeButtonStates(panels));
 
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
@@ -184,6 +192,10 @@ layoutSelect.addEventListener('change', e => {
     panel._runLayout();
   }
 });
+
+// Update merge button states on panel changes
+const updateMergeStates = () => layoutManager.updateMergeButtonStates(panels);
+window.addEventListener('panel-change', updateMergeStates);
 
 // Expose for debugging
 window.__panels = panels;

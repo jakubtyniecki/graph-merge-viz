@@ -69,3 +69,27 @@ export const isEmpty = graph => graph.nodes.length === 0 && graph.edges.length =
 
 /** Check if two graphs are structurally equal */
 export const graphsEqual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Get subgraph of root node and all its ancestors (BFS backwards from root) */
+export const getAncestorSubgraph = (graph, rootLabel) => {
+  const collected = new Set();
+  const queue = [rootLabel];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (collected.has(current)) continue;
+    collected.add(current);
+
+    // Follow edges backwards (target → source)
+    for (const edge of graph.edges) {
+      if (edge.target === current && !collected.has(edge.source)) {
+        queue.push(edge.source);
+      }
+    }
+  }
+
+  return {
+    nodes: graph.nodes.filter(n => collected.has(n.label)).map(n => deepClone(n)),
+    edges: graph.edges.filter(e => collected.has(e.source) && collected.has(e.target)).map(e => deepClone(e)),
+  };
+};

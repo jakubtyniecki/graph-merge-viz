@@ -23,6 +23,7 @@ export class LayoutManager {
     this.nextId = 1;
     this.tree = null;
     this._zoomedPanelId = null;
+    this._zoomSavedStates = new Map();
   }
 
   /** Initialize with default 2-panel vertical split */
@@ -149,6 +150,13 @@ export class LayoutManager {
     if (this._zoomedPanelId) {
       const zoomedNode = this._findPanelNode(this.tree, this._zoomedPanelId);
       if (zoomedNode) {
+        // Save non-zoomed panel states for later restoration
+        for (const id of oldPanelIds) {
+          if (id !== this._zoomedPanelId && savedStates.has(id)) {
+            this._zoomSavedStates.set(id, savedStates.get(id));
+          }
+        }
+
         const panelDom = this._renderPanel(zoomedNode);
         panelDom.style.flex = '1';
         panelDom.classList.add('zoomed');
@@ -165,6 +173,14 @@ export class LayoutManager {
       // Zoomed panel not found — fall through to normal render
       this._zoomedPanelId = null;
     }
+
+    // Normal mode: restore any previously saved zoom states
+    for (const [id, state] of this._zoomSavedStates) {
+      if (!savedStates.has(id)) {
+        savedStates.set(id, state);
+      }
+    }
+    this._zoomSavedStates.clear();
 
     const rootDom = this._renderNode(this.tree);
     rootDom.style.flex = '1';
@@ -205,10 +221,14 @@ export class LayoutManager {
       <span class="panel-name" title="Click to rename">${displayName}</span>
       <span class="panel-info"></span>
       <span class="panel-header-btns">
-        <button class="panel-zoom-btn" title="Zoom (toggle)">&#x2922;</button>
-        <button class="panel-split-btn" data-split="v" title="Split side by side">&#x2194;</button>
-        <button class="panel-split-btn" data-split="h" title="Split top/bottom">&#x2195;</button>
-        <button class="panel-close-btn" title="Close panel">&#x2715;</button>
+        <span class="panel-split-group">
+          <button class="panel-split-btn" data-split="v" title="Split this panel into two side-by-side panels">&#x2194;</button>
+          <button class="panel-split-btn" data-split="h" title="Split this panel into two stacked panels">&#x2195;</button>
+        </span>
+        <span class="panel-window-group">
+          <button class="panel-zoom-btn" title="Toggle full-screen zoom on this panel (Escape to exit)">&#x2922;</button>
+          <button class="panel-close-btn" title="Close this panel and remove it from the layout">&#x2715;</button>
+        </span>
       </span>
     `;
     panel.appendChild(header);
@@ -248,18 +268,23 @@ export class LayoutManager {
     const actions = document.createElement('div');
     actions.className = 'panel-actions';
     actions.innerHTML = `
-      <button data-action="add-node" class="btn-add">+ Node</button>
-      <button data-action="add-edge" class="btn-add">+ Edge</button>
-      <button data-action="edit" class="btn-edit">Edit</button>
-      <button data-action="delete" class="btn-delete">Delete</button>
-      <button data-action="clear" class="btn-clear">Clear</button>
-      <button data-action="approve" class="btn-approve">Approve</button>
+      <span class="panel-actions-left">
+        <button data-action="add-node" class="btn-add" title="Add a new labeled node to the graph">+ Node</button>
+        <button data-action="add-edge" class="btn-add" title="Add a new directed edge between two existing nodes">+ Edge</button>
+        <span class="action-separator"></span>
+        <button data-action="approve" class="btn-approve" title="Snapshot current state as baseline and clear all diffs">Approve</button>
+        <button data-action="restore" class="btn-restore" title="Revert graph to last approved state (undo all changes since approval)">Restore</button>
+        <span class="action-separator"></span>
+        <button data-action="clear" class="btn-clear" title="Reset panel to empty state (clears graph, approval history, and diffs)">Clear</button>
+      </span>
       <span class="panel-actions-right">
-        <button data-action="undo" class="btn-icon" title="Undo (Ctrl+Z)">&#x21B6;</button>
-        <button data-action="redo" class="btn-icon" title="Redo (Ctrl+Shift+Z)">&#x21B7;</button>
-        <button data-action="restore" class="btn-restore" title="Restore to approved state">Restore</button>
-        <button data-action="import" class="btn-icon" title="Import graph">&#x1F4E5;</button>
-        <button data-action="export" class="btn-icon" title="Export graph">&#x1F4E4;</button>
+        <button data-action="refresh" class="btn-icon" title="Re-layout and resize the graph canvas">&#x21BB;</button>
+        <span class="action-separator"></span>
+        <button data-action="undo" class="btn-icon" title="Undo last graph operation (Ctrl+Z)">&#x21B6;</button>
+        <button data-action="redo" class="btn-icon" title="Redo last undone operation (Ctrl+Shift+Z)">&#x21B7;</button>
+        <span class="action-separator"></span>
+        <button data-action="import" class="btn-icon" title="Import graph from a JSON file">&#x21A5;</button>
+        <button data-action="export" class="btn-icon" title="Export current graph as a JSON file">&#x21A7;</button>
       </span>
     `;
     panel.appendChild(actions);
@@ -276,14 +301,14 @@ export class LayoutManager {
     const child0 = this._renderNode(node.children[0]);
     const child1 = this._renderNode(node.children[1]);
 
-    // Apply sizes via flex-basis
-    child0.style.flex = `0 0 calc(${node.sizes[0]}% - 28px)`;
+    // Apply sizes via flex-grow (proportional distribution)
+    child0.style.flex = `${node.sizes[0]} 1 0`;
     child0.style.overflow = 'hidden';
     child0.style.display = 'flex';
     child0.style.minWidth = '0';
     child0.style.minHeight = '0';
 
-    child1.style.flex = `0 0 calc(${node.sizes[1]}% - 28px)`;
+    child1.style.flex = `${node.sizes[1]} 1 0`;
     child1.style.overflow = 'hidden';
     child1.style.display = 'flex';
     child1.style.minWidth = '0';
@@ -304,53 +329,86 @@ export class LayoutManager {
     return node.name || `Panel ${node.id}`;
   }
 
-  /** Build merge gutter with zone-based directional buttons and resize handle */
+  /** Build merge gutter with zone-overlap buttons and resize handle */
   _renderMergeGutter(splitNode) {
     const isVertical = splitNode.direction === 'v';
     const gutter = document.createElement('div');
     gutter.className = 'merge-gutter';
 
-    const leftZones = this._getZones(splitNode.children[0], splitNode.direction);
-    const rightZones = this._getZones(splitNode.children[1], splitNode.direction);
+    const leftZones = this._getZones(splitNode.children[0], splitNode.direction, 'first');
+    const rightZones = this._getZones(splitNode.children[1], splitNode.direction, 'second');
 
-    // Use the side with more zones to drive the layout
-    const useLeftZones = leftZones.length >= rightZones.length;
-    const primaryZones = useLeftZones ? leftZones : rightZones;
-    const otherChild = useLeftZones ? splitNode.children[1] : splitNode.children[0];
-    const otherIds = this._allPanelIds(otherChild);
+    // Convert zones to offset ranges
+    const toRanges = zones => {
+      let offset = 0;
+      return zones.map(z => {
+        const range = { start: offset, end: offset + z.size, panels: z.panels, slot: z.slot };
+        offset += z.size;
+        return range;
+      });
+    };
 
-    const pushArrow = isVertical ? '>>' : '\u25BC\u25BC';
-    const pullArrow = isVertical ? '<<' : '\u25B2\u25B2';
+    const leftRanges = toRanges(leftZones);
+    const rightRanges = toRanges(rightZones);
 
-    for (const zone of primaryZones) {
+    // Collect all breakpoints and create segments
+    const breakpoints = new Set([0, 100]);
+    for (const r of [...leftRanges, ...rightRanges]) {
+      breakpoints.add(r.start);
+      breakpoints.add(r.end);
+    }
+    const sorted = [...breakpoints].sort((a, b) => a - b);
+
+    const findZone = (ranges, mid) => ranges.find(r => r.start <= mid && mid < r.end);
+
+    const pushArrow = isVertical ? '\u25B6\u25B6' : '\u25BC\u25BC';
+    const pullArrow = isVertical ? '\u25C0\u25C0' : '\u25B2\u25B2';
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const segStart = sorted[i];
+      const segEnd = sorted[i + 1];
+      const segMid = (segStart + segEnd) / 2;
+
+      const leftZone = findZone(leftRanges, segMid);
+      const rightZone = findZone(rightRanges, segMid);
+      if (!leftZone || !rightZone) continue;
+
+      // Skip corner pairings: if both zones have non-null slots that don't match
+      if (leftZone.slot !== null && rightZone.slot !== null && leftZone.slot !== rightZone.slot) {
+        continue;
+      }
+
       const zoneEl = document.createElement('div');
       zoneEl.className = 'merge-zone';
-      zoneEl.style.flex = `0 0 ${zone.size}%`;
+      if (isVertical) {
+        zoneEl.style.top = `${segStart}%`;
+        zoneEl.style.height = `${segEnd - segStart}%`;
+      } else {
+        zoneEl.style.left = `${segStart}%`;
+        zoneEl.style.width = `${segEnd - segStart}%`;
+      }
 
-      for (const primary of zone.panels) {
-        for (const otherId of otherIds) {
-          const otherNode = this._findPanelNode(this.tree, otherId);
-          const [leftId, rightId] = useLeftZones
-            ? [primary.id, otherId]
-            : [otherId, primary.id];
-          const [leftName, rightName] = useLeftZones
-            ? [primary.name, this._panelName(otherNode)]
-            : [this._panelName(otherNode), primary.name];
-
-          // Push button: left → right
+      // Only pair panels from overlapping zones
+      for (const leftPanel of leftZone.panels) {
+        for (const rightPanel of rightZone.panels) {
+          // Push: left → right
           const pushBtn = document.createElement('button');
-          pushBtn.className = 'merge-btn merge-btn-push';
-          pushBtn.textContent = `${leftName} ${pushArrow} ${rightName}`;
-          pushBtn.title = `Push ${leftName} \u2192 ${rightName}`;
-          pushBtn.onclick = () => this.onMerge(leftId, rightId);
+          pushBtn.className = 'merge-btn';
+          pushBtn.textContent = `${leftPanel.name} ${pushArrow} ${rightPanel.name}`;
+          pushBtn.title = `Push ${leftPanel.name} graph into ${rightPanel.name}. Source must be approved first.`;
+          pushBtn.dataset.mergeSource = leftPanel.id;
+          pushBtn.dataset.mergeTarget = rightPanel.id;
+          pushBtn.onclick = () => this.onMerge(leftPanel.id, rightPanel.id);
           zoneEl.appendChild(pushBtn);
 
-          // Pull button: right → left
+          // Pull: right → left
           const pullBtn = document.createElement('button');
-          pullBtn.className = 'merge-btn merge-btn-pull';
-          pullBtn.textContent = `${leftName} ${pullArrow} ${rightName}`;
-          pullBtn.title = `Pull ${rightName} \u2192 ${leftName}`;
-          pullBtn.onclick = () => this.onMerge(rightId, leftId);
+          pullBtn.className = 'merge-btn';
+          pullBtn.textContent = `${leftPanel.name} ${pullArrow} ${rightPanel.name}`;
+          pullBtn.title = `Pull ${rightPanel.name} graph into ${leftPanel.name}. Source must be approved first.`;
+          pullBtn.dataset.mergeSource = rightPanel.id;
+          pullBtn.dataset.mergeTarget = leftPanel.id;
+          pullBtn.onclick = () => this.onMerge(rightPanel.id, leftPanel.id);
           zoneEl.appendChild(pullBtn);
         }
       }
@@ -368,30 +426,32 @@ export class LayoutManager {
   }
 
   /** Get zones for merge button alignment.
-   *  Returns array of { panels: [{id, name}], size: number } */
-  _getZones(childNode, gutterDirection) {
+   *  Returns array of { panels: [{id, name}], size: number, slot: number|null }
+   *  @param {LayoutNode} childNode - The node to get zones from
+   *  @param {string} gutterDirection - Direction of the gutter ('v' or 'h')
+   *  @param {string} side - Which side of the gutter this node is on ('first' or 'second')
+   */
+  _getZones(childNode, gutterDirection, side) {
     if (childNode.type === 'panel') {
-      return [{ panels: [{ id: childNode.id, name: this._panelName(childNode) }], size: 100 }];
+      return [{ panels: [{ id: childNode.id, name: this._panelName(childNode) }], size: 100, slot: null }];
     }
 
     const perpendicularDir = gutterDirection === 'v' ? 'h' : 'v';
 
     if (childNode.direction === perpendicularDir) {
-      // Children split perpendicular to gutter → separate zones
+      // Children split perpendicular to gutter → separate zones, scaled by split ratios
+      // Assign slots to prevent corner pairings
+      const zone0 = this._getZones(childNode.children[0], gutterDirection, side);
+      const zone1 = this._getZones(childNode.children[1], gutterDirection, side);
       return [
-        {
-          panels: this._allPanelNodes(childNode.children[0]),
-          size: childNode.sizes[0],
-        },
-        {
-          panels: this._allPanelNodes(childNode.children[1]),
-          size: childNode.sizes[1],
-        },
+        ...zone0.map(z => ({ panels: z.panels, size: z.size * childNode.sizes[0] / 100, slot: z.slot !== null ? z.slot : 0 })),
+        ...zone1.map(z => ({ panels: z.panels, size: z.size * childNode.sizes[1] / 100, slot: z.slot !== null ? z.slot : 1 })),
       ];
     }
 
-    // Children split parallel to gutter → one zone with all panels
-    return [{ panels: this._allPanelNodes(childNode), size: 100 }];
+    // Children split parallel to gutter → only boundary child is adjacent
+    const boundaryChild = side === 'first' ? childNode.children[1] : childNode.children[0];
+    return this._getZones(boundaryChild, gutterDirection, side);
   }
 
   /** Get all panel nodes from a subtree as [{id, name}] */
@@ -445,11 +505,11 @@ export class LayoutManager {
         splitNode.sizes[0] = ratio * 100;
         splitNode.sizes[1] = (1 - ratio) * 100;
 
-        // Update flex-basis of children
+        // Update flex-grow of children
         const children = parent.querySelectorAll(':scope > .panel, :scope > .split-v, :scope > .split-h');
         if (children.length >= 2) {
-          children[0].style.flex = `0 0 calc(${splitNode.sizes[0]}% - 28px)`;
-          children[children.length - 1].style.flex = `0 0 calc(${splitNode.sizes[1]}% - 28px)`;
+          children[0].style.flex = `${splitNode.sizes[0]} 1 0`;
+          children[children.length - 1].style.flex = `${splitNode.sizes[1]} 1 0`;
         }
       };
 
@@ -469,6 +529,17 @@ export class LayoutManager {
       document.body.style.userSelect = 'none';
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
+    });
+  }
+
+  /** Update merge button colors based on source panel clean/dirty state */
+  updateMergeButtonStates(panels) {
+    this.rootEl.querySelectorAll('.merge-btn[data-merge-source]').forEach(btn => {
+      const sourceId = btn.dataset.mergeSource;
+      const panel = panels.get(sourceId);
+      const isAllowed = panel ? panel.isClean() : true;
+      btn.classList.toggle('merge-btn-allowed', isAllowed);
+      btn.classList.toggle('merge-btn-blocked', !isAllowed);
     });
   }
 

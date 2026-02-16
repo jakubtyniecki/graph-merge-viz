@@ -12,13 +12,22 @@ function getDialog() {
   return dialogEl;
 }
 
+let overlayEl = null;
+
 function openDialog(html, panelEl = null) {
   const dlg = getDialog();
   dlg.innerHTML = html;
-  dlg.showModal();
 
   // Position relative to panel if provided
   if (panelEl) {
+    // Create and insert custom overlay into panel
+    overlayEl = document.createElement('div');
+    overlayEl.className = 'panel-overlay';
+    panelEl.insertBefore(overlayEl, panelEl.firstChild);
+
+    // Use show() instead of showModal() for scoped overlay
+    dlg.show();
+
     const rect = panelEl.getBoundingClientRect();
     dlg.style.position = 'fixed';
     dlg.style.left = `${rect.left + rect.width / 2}px`;
@@ -26,6 +35,8 @@ function openDialog(html, panelEl = null) {
     dlg.style.transform = 'translate(-50%, -50%)';
     dlg.style.margin = '0';
   } else {
+    // Full-page modal with native backdrop
+    dlg.showModal();
     // Reset to default centering
     dlg.style.position = '';
     dlg.style.left = '';
@@ -39,6 +50,11 @@ function openDialog(html, panelEl = null) {
 
 function closeDialog() {
   getDialog().close();
+  // Remove custom overlay if it exists
+  if (overlayEl) {
+    overlayEl.remove();
+    overlayEl = null;
+  }
 }
 
 /** Show a confirmation dialog, returns Promise<boolean> */
@@ -125,7 +141,7 @@ export function addNodeDialog(panel) {
       <button id="dlg-cancel">Cancel</button>
       <button id="dlg-ok" class="btn-primary">Add</button>
     </div>
-  `);
+  `, panel.panelEl);
   dlg.querySelector('#dlg-cancel').onclick = closeDialog;
   dlg.querySelector('#dlg-ok').onclick = () => {
     const label = dlg.querySelector('#dlg-label').value.trim();
@@ -158,7 +174,7 @@ export function addEdgeDialog(panel) {
       <button id="dlg-cancel">Cancel</button>
       <button id="dlg-ok" class="btn-primary">Add</button>
     </div>
-  `);
+  `, panel.panelEl);
   if (labels.length > 1) dlg.querySelector('#dlg-target').value = labels[1];
   dlg.querySelector('#dlg-cancel').onclick = closeDialog;
   dlg.querySelector('#dlg-ok').onclick = () => {
@@ -192,7 +208,7 @@ export function editSelectedDialog(panel) {
         <button id="dlg-cancel">Cancel</button>
         <button id="dlg-ok" class="btn-primary">Save</button>
       </div>
-    `);
+    `, panel.panelEl);
     dlg.querySelector('#dlg-cancel').onclick = closeDialog;
     dlg.querySelector('#dlg-ok').onclick = () => {
       panel.updateNodeProps(label, textToProps(dlg.querySelector('#dlg-props').value));
@@ -212,7 +228,7 @@ export function editSelectedDialog(panel) {
         <button id="dlg-cancel">Cancel</button>
         <button id="dlg-ok" class="btn-primary">Save</button>
       </div>
-    `);
+    `, panel.panelEl);
     dlg.querySelector('#dlg-cancel').onclick = closeDialog;
     dlg.querySelector('#dlg-ok').onclick = () => {
       panel.updateEdgeProps(source, target, textToProps(dlg.querySelector('#dlg-props').value));

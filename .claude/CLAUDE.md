@@ -2,7 +2,7 @@
 
 **GitHub Repo:** https://github.com/jakubtyniecki/graph-merge-viz (private)
 **Branch:** master (single branch, keep clean)
-**Last Updated:** 2026-02-16
+**Last Updated:** 2026-02-16 (bug fixes: paste, dialogs, branch selection)
 
 ---
 
@@ -18,6 +18,23 @@
 ## Key Architecture
 
 ### Recent Changes
+
+**2026-02-16: Bug Fixes + Branch Selection Feature**
+
+1. **Fixed Paste Deleting Existing Nodes** (`src/ui/panel.js`, `src/ui/clipboard.js`)
+   - Added `pasteSubgraph()` method — additive-only merge by passing `null` base graph to `mergeGraphs()`
+   - Changed `pasteToPanel()` and `pasteBranchToNode()` to use `pasteSubgraph()` instead of `receiveMerge()`
+   - Fixes deletion logic that treated clipboard subgraph as complete panel state
+
+2. **Fixed Dialog Positioning** (`src/ui/dialogs.js`, `src/ui/context-menu.js`, `src/main.js`)
+   - All dialog functions now receive `panelEl` as parameter for proper centering
+   - Updated: `addNodeDialog`, `addEdgeDialog`, `editSelectedDialog`, paste confirmations, `confirmClose`
+   - Dialogs now center on affected panel instead of viewport
+
+3. **Added "Select Branch" Feature** (`src/ui/panel.js`, `src/ui/clipboard.js`, `src/ui/context-menu.js`)
+   - New `selectBranch()` method in Panel — selects all ancestors + connecting edges
+   - Context menu: "Select Branch from X" option for each node
+   - Auto-select on Copy Branch — branch is highlighted when copied
 
 **2026-02-16: Merge Strategy Overhaul + Panel Features**
 

@@ -2,7 +2,7 @@ import cytoscape from 'cytoscape';
 import { baseStyles } from '../cytoscape/styles.js';
 import { computeDiff } from '../graph/diff.js';
 import { mergeGraphs } from '../graph/merge.js';
-import { createGraph, deepClone, isEmpty, nodeKey, edgeKey } from '../graph/model.js';
+import { createGraph, deepClone, isEmpty, nodeKey, edgeKey, getAncestorSubgraph } from '../graph/model.js';
 import { exportToFile } from '../graph/serializer.js';
 import { showToast } from './toast.js';
 
@@ -183,10 +183,13 @@ export class Panel {
     this._emitChange();
   }
 
-  /** Clear graph entirely */
+  /** Clear graph entirely — total reset including approval state */
   clearGraph() {
     this._pushHistory();
     this.graph = createGraph();
+    this.baseGraph = null;
+    this.mergeDirection = null;
+    this.lastApproval = null;
     this._syncCytoscape();
     this._applyDiffClasses();
     this._updateHeader();
@@ -228,6 +231,41 @@ export class Panel {
     this._updateHeader();
     this._emitChange();
     return { ok: true };
+  }
+
+  /** Paste a subgraph (clipboard content) — additive-only merge with no deletions */
+  pasteSubgraph(incomingGraph, direction) {
+    if (isEmpty(this.graph) && !this.baseGraph) {
+      // Same as receiveMerge Case 1: empty target → copy + auto-approve
+      this.graph = deepClone(incomingGraph);
+      this.baseGraph = deepClone(incomingGraph);
+      this.lastApproval = new Date().toISOString();
+      this.mergeDirection = null;
+      this._syncCytoscape();
+      this._updateHeader();
+      this._emitChange();
+    } else {
+      this._pushHistory();
+      this.graph = mergeGraphs(this.graph, incomingGraph, null); // null = no deletions
+      this.mergeDirection = direction;
+      this._syncCytoscape();
+      this._applyDiffClasses();
+      this._updateHeader();
+      this._emitChange();
+    }
+    return { ok: true };
+  }
+
+  /** Select all nodes/edges in a branch (ancestors of a node) */
+  selectBranch(nodeLabel) {
+    const subgraph = getAncestorSubgraph(this.graph, nodeLabel);
+    this.cy.elements().unselect();
+    for (const node of subgraph.nodes) {
+      this.cy.$id(node.label).select();
+    }
+    for (const edge of subgraph.edges) {
+      this.cy.$id(`${edge.source}→${edge.target}`).select();
+    }
   }
 
   /** Export graph as JSON file */

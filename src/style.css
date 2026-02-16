@@ -21,7 +21,7 @@
   --diff-modified: #FF9800;
   --header-height: 48px;
   --action-bar-height: 40px;
-  --gutter-size: 56px;
+  --gutter-size: 12px;
 }
 
 html, body {
@@ -52,12 +52,28 @@ html, body {
 #header-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
-#header-controls label {
-  font-size: 12px;
+.header-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-section-label {
+  font-size: 10px;
   color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.header-separator {
+  width: 1px;
+  height: 24px;
+  background: var(--border);
+  flex-shrink: 0;
 }
 
 #session-controls {
@@ -96,46 +112,51 @@ html, body {
   min-height: 0;
 }
 
-/* Merge gutter between siblings */
+/* Merge gutter — thin bar with floating buttons */
 .merge-gutter {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
+  position: relative;
+  z-index: 10;
   flex-shrink: 0;
   background: var(--bg);
 }
 
 .split-v > .merge-gutter {
-  flex-direction: column;
   width: var(--gutter-size);
-  padding: 4px 2px;
 }
 
 .split-h > .merge-gutter {
-  flex-direction: row;
-  height: 32px;
-  padding: 2px 4px;
+  height: var(--gutter-size);
 }
 
+/* Merge zones — absolutely positioned within gutter */
 .merge-zone {
+  position: absolute;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
+  pointer-events: none;
+}
+
+.split-v > .merge-gutter .merge-zone {
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .split-h > .merge-gutter .merge-zone {
+  top: 50%;
+  transform: translateY(-50%);
   flex-direction: row;
 }
 
 /* Resize handle */
 .resize-handle {
-  flex-shrink: 0;
+  position: absolute;
   border-radius: 2px;
   background: var(--border);
   transition: background 0.15s;
+  z-index: 11;
 }
 
 .resize-handle:hover {
@@ -146,12 +167,18 @@ html, body {
   width: 4px;
   height: 40px;
   cursor: col-resize;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 .split-h > .merge-gutter .resize-handle {
   width: 40px;
   height: 4px;
   cursor: row-resize;
+  top: 50%;
+  left: 8px;
+  transform: translateY(-50%);
 }
 
 /* Merge buttons */
@@ -161,30 +188,45 @@ html, body {
   border-radius: 3px;
   cursor: pointer;
   white-space: nowrap;
+  pointer-events: auto;
+  background: var(--surface);
+  transition: opacity 0.15s, background 0.15s;
+  font-weight: 700;
 }
 
-.merge-btn-push {
+.merge-btn:hover {
+  opacity: 1;
+}
+
+.merge-btn-allowed {
   color: var(--success);
-  border-color: var(--success);
-  background: rgba(76, 175, 80, 0.1);
+  border-left: 3px solid var(--success);
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
-.merge-btn-push:hover {
-  background: rgba(76, 175, 80, 0.25);
+.merge-btn-allowed:hover {
+  background: rgba(76, 175, 80, 0.15);
 }
 
-.merge-btn-pull {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: rgba(79, 195, 247, 0.1);
+.merge-btn-blocked {
+  color: var(--danger);
+  border-left: 3px solid var(--danger);
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  opacity: 0.8;
 }
 
-.merge-btn-pull:hover {
-  background: rgba(79, 195, 247, 0.25);
+.merge-btn-blocked:hover {
+  opacity: 1;
+  background: rgba(244, 67, 54, 0.1);
 }
 
 /* Panels */
 .panel {
+  position: relative;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
@@ -192,6 +234,13 @@ html, body {
   margin: 4px;
   border-radius: 6px;
   overflow: hidden;
+}
+
+.panel-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 50;
 }
 
 .panel-header {
@@ -238,11 +287,25 @@ html, body {
   min-height: var(--action-bar-height);
 }
 
+.panel-actions-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .panel-actions-right {
   display: flex;
   align-items: center;
   gap: 4px;
   margin-left: auto;
+}
+
+.action-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
 }
 
 /* Buttons */
@@ -274,26 +337,6 @@ button:active {
 
 .btn-add:hover {
   background: rgba(79, 195, 247, 0.3);
-}
-
-.btn-edit {
-  background: rgba(255, 235, 59, 0.15);
-  border-color: #ffeb3b;
-  color: #ffeb3b;
-}
-
-.btn-edit:hover {
-  background: rgba(255, 235, 59, 0.3);
-}
-
-.btn-delete {
-  background: rgba(255, 152, 0, 0.15);
-  border-color: var(--warning);
-  color: var(--warning);
-}
-
-.btn-delete:hover {
-  background: rgba(255, 152, 0, 0.3);
 }
 
 .btn-clear {
@@ -335,8 +378,14 @@ button:active {
 /* Panel header buttons */
 .panel-header-btns {
   display: flex;
-  gap: 4px;
+  gap: 12px;
   margin-left: 8px;
+}
+
+.panel-split-group,
+.panel-window-group {
+  display: flex;
+  gap: 4px;
 }
 
 .panel-split-btn,
@@ -367,6 +416,41 @@ button:active {
 
 .panel-close-btn:hover {
   background: rgba(244, 67, 54, 0.2);
+}
+
+/* Context menu */
+.context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  min-width: 180px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.context-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.context-menu-item:hover {
+  background: var(--surface-hover);
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 
 /* Toast */
@@ -416,6 +500,10 @@ dialog {
   padding: 16px;
   min-width: 250px;
   max-width: 350px;
+}
+
+dialog[open] {
+  z-index: 100;
 }
 
 dialog::backdrop {
