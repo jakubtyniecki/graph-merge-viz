@@ -49,6 +49,17 @@ html, body {
   color: var(--accent);
 }
 
+#header-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#header-controls label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 #session-controls {
   display: flex;
   align-items: center;
@@ -56,7 +67,8 @@ html, body {
 }
 
 #session-controls select,
-#session-controls button {
+#session-controls button,
+#layout-algo {
   font-size: 12px;
 }
 
@@ -104,6 +116,18 @@ html, body {
   flex-direction: row;
   height: 32px;
   padding: 2px 4px;
+}
+
+.merge-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.split-h > .merge-gutter .merge-zone {
+  flex-direction: row;
 }
 
 /* Resize handle */
@@ -205,12 +229,20 @@ html, body {
 .panel-actions {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 4px;
   padding: 4px 8px;
   border-top: 1px solid var(--border);
   background: rgba(0, 0, 0, 0.15);
   flex-wrap: wrap;
   min-height: var(--action-bar-height);
+}
+
+.panel-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
 
 /* Buttons */
@@ -234,6 +266,46 @@ button:active {
   transform: scale(0.97);
 }
 
+.btn-add {
+  background: rgba(79, 195, 247, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-add:hover {
+  background: rgba(79, 195, 247, 0.3);
+}
+
+.btn-edit {
+  background: rgba(255, 235, 59, 0.15);
+  border-color: #ffeb3b;
+  color: #ffeb3b;
+}
+
+.btn-edit:hover {
+  background: rgba(255, 235, 59, 0.3);
+}
+
+.btn-delete {
+  background: rgba(255, 152, 0, 0.15);
+  border-color: var(--warning);
+  color: var(--warning);
+}
+
+.btn-delete:hover {
+  background: rgba(255, 152, 0, 0.3);
+}
+
+.btn-clear {
+  background: rgba(244, 67, 54, 0.15);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn-clear:hover {
+  background: rgba(244, 67, 54, 0.3);
+}
+
 .btn-approve {
   background: rgba(76, 175, 80, 0.2);
   border-color: var(--success);
@@ -244,6 +316,22 @@ button:active {
   background: rgba(76, 175, 80, 0.35);
 }
 
+.btn-icon {
+  padding: 4px 8px;
+  font-size: 16px;
+  min-width: 32px;
+}
+
+.btn-restore {
+  background: rgba(138, 43, 226, 0.15);
+  border-color: #8a2be2;
+  color: #8a2be2;
+}
+
+.btn-restore:hover {
+  background: rgba(138, 43, 226, 0.3);
+}
+
 /* Panel header buttons */
 .panel-header-btns {
   display: flex;
@@ -252,10 +340,24 @@ button:active {
 }
 
 .panel-split-btn,
-.panel-close-btn {
+.panel-close-btn,
+.panel-zoom-btn {
   font-size: 11px;
   padding: 2px 6px;
   line-height: 1;
+}
+
+.panel-zoom-btn {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.panel-zoom-btn:hover {
+  background: rgba(79, 195, 247, 0.2);
+}
+
+.panel.zoomed {
+  border-color: var(--accent);
 }
 
 .panel-close-btn {
@@ -311,13 +413,13 @@ dialog {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 20px;
-  min-width: 300px;
-  max-width: 450px;
+  padding: 16px;
+  min-width: 250px;
+  max-width: 350px;
 }
 
 dialog::backdrop {
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.75);
 }
 
 dialog h3 {

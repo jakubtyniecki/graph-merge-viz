@@ -2,7 +2,7 @@
 
 **GitHub Repo:** https://github.com/jakubtyniecki/graph-merge-viz (private)
 **Branch:** master (single branch, keep clean)
-**Last Updated:** 2026-02-13
+**Last Updated:** 2026-02-16
 
 ---
 
@@ -17,9 +17,30 @@
 
 ## Key Architecture
 
-### Recent Changes (2026-02-13)
+### Recent Changes
 
-Implemented **Dynamic Layout & Merge Button Redesign**:
+**2026-02-16: Merge Strategy Overhaul + Panel Features**
+
+1. **Simplified Merge Strategy** (`src/ui/panel.js`)
+   - Removed incoming baseline param from `receiveMerge()` — now uses target's own `baseGraph` for deletion detection
+   - Simplified from 5 cases to 2: empty target (auto-approve) vs normal merge
+   - Source must be clean (approved) before merging — blocked with modal if dirty
+   - Target can receive merges when dirty (no directional lock)
+   - Always diffs against target's last approved state, not incoming baseline
+
+2. **Panel Management Features** (`src/ui/layout.js`)
+   - **Rename panels**: Click panel name → dialog → updates in header & merge buttons
+   - **Add panel**: `+ Panel` button in header → appends new panel to right (70/30 split)
+   - **Zoom panel**: Click `⤢` button or press Escape → tmux-style zoom (only renders zoomed panel)
+   - **Split icons**: Changed to `↔` (side-by-side) and `↕` (top/bottom)
+   - **Zone-based merge gutters**: Buttons align to panel midpoints in complex layouts
+
+3. **Data Model Changes**
+   - Panel nodes now have optional `name` field: `{ type: "panel", id: "1", name: "My Graph" }`
+   - Merge buttons use panel names instead of IDs
+   - Layout tree serialization includes panel names
+
+**2026-02-13: Dynamic Layout & Merge Button Redesign**
 
 1. **Recursive Split Tree Layout** (`src/ui/layout.js`)
    - Replaces static 3-col/4-panel grid with dynamic split tree
@@ -28,8 +49,7 @@ Implemented **Dynamic Layout & Merge Button Redesign**:
    - Panel IDs: simple numbers (1, 2, 3...) instead of 1.1, 2.1
 
 2. **Merge Buttons Between Adjacent Panels**
-   - In resize gutter: `1 >> 2` / `1 << 2` (push/pull for vertical)
-   - For horizontal splits: `1 ▼▼ 2` / `1 ▲▲ 2`
+   - In resize gutter: push/pull buttons between sibling panels
    - Only appears between sibling panels in tree
    - Draggable resize handle in same gutter
 
@@ -83,16 +103,24 @@ src/
 **Data Structure:**
 ```javascript
 LayoutNode =
-  | { type: "panel", id: string }
+  | { type: "panel", id: string, name?: string }
   | { type: "split", direction: "h"|"v", children: [LayoutNode, LayoutNode], sizes: [num, num] }
 ```
 
 **Key Methods:**
 - `init()` — Create default 2-panel layout
-- `splitPanel(id, dir)` — Replace panel with split node + new panel
-- `closePanel(id)` — Remove panel, promote sibling
+- `splitPanel(id, dir)` — Replace panel with split node + new panel (preserves name)
+- `closePanel(id)` — Remove panel, promote sibling (clears zoom if closed panel is zoomed)
+- `addPanel()` — Wrap tree in new vertical split with 70/30 ratio
+- `toggleZoom(id)` — Show only zoomed panel (tmux-style), or restore normal layout
 - `render()` — Destroy all panels, rebuild DOM, recreate panels (preserves state via getState/setState callbacks)
-- `getLayout() / setLayout()` — Serialize/restore for sessions
+  - In zoom mode: only renders zoomed panel (saves memory)
+- `getLayout() / setLayout()` — Serialize/restore for sessions (includes panel names)
+
+**Zone-Based Merge Gutters:**
+- `_getZones(childNode, gutterDir)` — Returns array of `{ panels: [{id, name}], size: % }` for alignment
+- Perpendicular splits create separate zones (buttons align to each panel's midpoint)
+- Parallel splits create one zone (all buttons centered)
 
 **State Preservation:**
 - When rendering, LayoutManager calls `getState(id)` before destroying old panels
@@ -105,8 +133,15 @@ LayoutNode =
 1. `new Panel(id, canvasEl)` — Create Cytoscape instance in container
 2. `getState()` — Return { graph, baseGraph, mergeDirection, lastApproval }
 3. `setState(state)` — Restore state + re-sync Cytoscape + re-apply diffs
-4. `receiveMerge(graph, direction)` — Apply merge logic (5 cases per spec)
+4. `receiveMerge(incomingGraph, direction)` — Apply merge logic (2 cases: empty target vs normal merge)
 5. `approve()` — Clear diffs, snapshot baseGraph
+6. `isClean()` — Public method to check if panel has no pending changes (used by main.js for merge blocking)
+
+**Merge Logic (Simplified):**
+- **Case 1**: Target empty → copy incoming, auto-approve (no diff)
+- **Case 2**: Normal merge → use target's own `baseGraph` as 3rd arg to `mergeGraphs()` for deletion detection
+- Source-dirty check now in `main.js` (blocks with `infoDialog` before calling `receiveMerge`)
+- No directional lock — target can receive merges from any direction when dirty
 
 **Diff Visualization:**
 - `computeDiff(baseGraph, currentGraph)` creates DiffEntry[] for changes
@@ -278,4 +313,4 @@ Edit .merge-gutter / .resize-handle / .merge-btn in style.css
 
 ---
 
-Last worked on: **2026-02-13** — Dynamic layout implementation complete, repo cleaned, SPEC.md refactored as requirements doc.
+Last worked on: **2026-02-16** — Merge strategy overhaul + panel features (rename, zoom, add panel, zone-based gutters) complete.

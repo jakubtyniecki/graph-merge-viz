@@ -12,15 +12,86 @@ function getDialog() {
   return dialogEl;
 }
 
-function openDialog(html) {
+function openDialog(html, panelEl = null) {
   const dlg = getDialog();
   dlg.innerHTML = html;
   dlg.showModal();
+
+  // Position relative to panel if provided
+  if (panelEl) {
+    const rect = panelEl.getBoundingClientRect();
+    dlg.style.position = 'fixed';
+    dlg.style.left = `${rect.left + rect.width / 2}px`;
+    dlg.style.top = `${rect.top + rect.height / 2}px`;
+    dlg.style.transform = 'translate(-50%, -50%)';
+    dlg.style.margin = '0';
+  } else {
+    // Reset to default centering
+    dlg.style.position = '';
+    dlg.style.left = '';
+    dlg.style.top = '';
+    dlg.style.transform = '';
+    dlg.style.margin = '';
+  }
+
   return dlg;
 }
 
 function closeDialog() {
   getDialog().close();
+}
+
+/** Show a confirmation dialog, returns Promise<boolean> */
+export function confirmDialog(title, message, panelEl = null) {
+  return new Promise(resolve => {
+    const dlg = openDialog(`
+      <h3>${title}</h3>
+      <p>${message}</p>
+      <div class="dialog-actions">
+        <button id="dlg-cancel">Cancel</button>
+        <button id="dlg-ok" class="btn-primary">Confirm</button>
+      </div>
+    `, panelEl);
+    dlg.querySelector('#dlg-cancel').onclick = () => { closeDialog(); resolve(false); };
+    dlg.querySelector('#dlg-ok').onclick = () => { closeDialog(); resolve(true); };
+  });
+}
+
+/** Show an info dialog (OK button only), returns Promise<void> */
+export function infoDialog(title, message, panelEl = null) {
+  return new Promise(resolve => {
+    const dlg = openDialog(`
+      <h3>${title}</h3>
+      <p>${message}</p>
+      <div class="dialog-actions">
+        <button id="dlg-ok" class="btn-primary">OK</button>
+      </div>
+    `, panelEl);
+    dlg.querySelector('#dlg-ok').onclick = () => { closeDialog(); resolve(); };
+  });
+}
+
+/** Show a rename dialog, returns Promise<string|null> */
+export function renameDialog(currentName, panelEl = null) {
+  return new Promise(resolve => {
+    const dlg = openDialog(`
+      <h3>Rename Panel</h3>
+      <label>Name</label>
+      <input id="dlg-name" type="text" value="${currentName}" autofocus>
+      <div class="dialog-actions">
+        <button id="dlg-cancel">Cancel</button>
+        <button id="dlg-ok" class="btn-primary">Rename</button>
+      </div>
+    `, panelEl);
+    dlg.querySelector('#dlg-cancel').onclick = () => { closeDialog(); resolve(null); };
+    dlg.querySelector('#dlg-ok').onclick = () => {
+      closeDialog();
+      resolve(dlg.querySelector('#dlg-name').value.trim());
+    };
+    dlg.querySelector('#dlg-name').onkeydown = e => {
+      if (e.key === 'Enter') dlg.querySelector('#dlg-ok').click();
+    };
+  });
 }
 
 /** Format props as "key=value" lines for textarea */

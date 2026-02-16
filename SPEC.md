@@ -15,8 +15,11 @@
 1. **Multi-Panel Layout**
    - Dynamic, user-controllable panel layout (not fixed grid)
    - Default: 2 panels side-by-side
-   - Users can split panels horizontally or vertically
-   - Users can close panels (promote sibling)
+   - Users can split panels horizontally (`↕`) or vertically (`↔`)
+   - Users can close panels (promote sibling) with confirmation dialog
+   - Users can add new panels (appends to right with 70/30 split)
+   - Users can rename panels (click panel name → dialog)
+   - Users can zoom panels (tmux-style: `⤢` button or Escape key)
    - Minimum panel size: 200px
 
 2. **Graph Editing**
@@ -29,14 +32,14 @@
 
 3. **Graph Merging**
    - Push graph from one panel to another (unidirectional)
+   - Source must be clean (approved) before merging — blocked with modal if dirty
+   - Target can be dirty — merge always diffs against target's last approved state
    - Incoming graph wins on property conflicts
-   - 5 merge cases:
+   - Deletions detected using target's baseline (not incoming baseline)
+   - 2 merge cases:
      1. Target empty → auto-approve, no diff
-     2. Target clean → snapshot current as baseline, apply merge, show diff
-     3. Target dirty (same direction) → apply merge, keep original baseline
-     4. Target dirty (different direction) → blocked with error
-     5. Conflicts → incoming wins
-   - Directional lock: first merge sets direction, subsequent merges must match
+     2. Normal merge → apply incoming to target, diff against target's last approved state
+   - No directional lock — target can receive merges from any direction when dirty
 
 4. **Visual Diff Feedback**
    - Added nodes: green
@@ -65,16 +68,19 @@
 
 8. **Merge Button UI**
    - Merge buttons in resize gutter between adjacent panels
-   - Vertical split: `1 >> 2` (push) / `1 << 2` (pull)
-   - Horizontal split: `1 ▼▼ 2` (push) / `1 ▲▲ 2` (pull)
-   - Numbers stay positional (left/top first), arrows show direction
+   - Zone-based alignment: buttons align to each panel's vertical/horizontal midpoint
+   - Vertical split: `Name >> Name` (push) / `Name << Name` (pull)
+   - Horizontal split: `Name ▼▼ Name` (push) / `Name ▲▲ Name` (pull)
+   - Uses panel names (or "Panel {id}" if unnamed)
    - Only between sibling panels
 
 9. **Keyboard Shortcuts**
    - Ctrl+C: Copy selected subgraph
    - Ctrl+V: Paste into focused panel
+   - Ctrl+Z: Undo last operation
+   - Ctrl+Shift+Z: Redo last undone operation
    - Delete/Backspace: Delete selected elements
-   - Escape: Deselect all / close dialog
+   - Escape: Un-zoom panel / deselect all / close dialog
 
 ---
 

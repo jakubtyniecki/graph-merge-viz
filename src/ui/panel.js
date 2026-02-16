@@ -14,6 +14,9 @@ export class Panel {
     this.mergeDirection = null;
     this.lastApproval = null;
     this.container = container;
+    this._history = [];
+    this._redoStack = [];
+    this._maxHistory = 10;
 
     this.cy = cytoscape({
       container,
@@ -36,6 +39,11 @@ export class Panel {
     return deepClone(this.graph);
   }
 
+  /** Get base graph data */
+  getBaseGraph() {
+    return this.baseGraph ? deepClone(this.baseGraph) : null;
+  }
+
   /** Get current state for serialization */
   getState() {
     return {
@@ -44,6 +52,8 @@ export class Panel {
       baseGraph: this.baseGraph ? deepClone(this.baseGraph) : null,
       mergeDirection: this.mergeDirection,
       lastApproval: this.lastApproval,
+      _history: this._history.map(g => deepClone(g)),
+      _redoStack: this._redoStack.map(g => deepClone(g)),
     };
   }
 
@@ -53,6 +63,8 @@ export class Panel {
     this.baseGraph = state.baseGraph || null;
     this.mergeDirection = state.mergeDirection || null;
     this.lastApproval = state.lastApproval || null;
+    this._history = state._history ? state._history.map(g => deepClone(g)) : [];
+    this._redoStack = state._redoStack ? state._redoStack.map(g => deepClone(g)) : [];
     this._syncCytoscape();
     this._applyDiffClasses();
     this._updateHeader();
@@ -73,6 +85,7 @@ export class Panel {
       showToast(`Node "${label}" already exists`, 'error');
       return false;
     }
+    this._pushHistory();
     this.graph = {
       nodes: [...this.graph.nodes, { label, props: { ...props } }],
       edges: [...this.graph.edges],
@@ -98,6 +111,7 @@ export class Panel {
       showToast(`Edge "${source}→${target}" already exists`, 'error');
       return false;
     }
+    this._pushHistory();
     this.graph = {
       nodes: [...this.graph.nodes],
       edges: [...this.graph.edges, { source, target, props: { ...props } }],
@@ -111,6 +125,7 @@ export class Panel {
 
   /** Update node props */
   updateNodeProps(label, props) {
+    this._pushHistory();
     this.graph = {
       nodes: this.graph.nodes.map(n => n.label === label ? { ...n, props: { ...props } } : n),
       edges: [...this.graph.edges],
@@ -123,6 +138,7 @@ export class Panel {
 
   /** Update edge props */
   updateEdgeProps(source, target, props) {
+    this._pushHistory();
     this.graph = {
       nodes: [...this.graph.nodes],
       edges: this.graph.edges.map(e =>
@@ -143,6 +159,7 @@ export class Panel {
       return;
     }
 
+    this._pushHistory();
     const nodeLabels = new Set();
     selected.nodes().forEach(n => nodeLabels.add(n.data('label')));
 
@@ -168,6 +185,7 @@ export class Panel {
 
   /** Clear graph entirely */
   clearGraph() {
+    this._pushHistory();
     this.graph = createGraph();
     this._syncCytoscape();
     this._applyDiffClasses();
@@ -180,6 +198,7 @@ export class Panel {
     this.baseGraph = deepClone(this.graph);
     this.mergeDirection = null;
     this.lastApproval = new Date().toISOString();
+    this._syncCytoscape();      // Re-sync with new baseGraph to remove ghost nodes
     this._clearDiffClasses();
     this._updateHeader();
     this._emitChange();
@@ -200,23 +219,9 @@ export class Panel {
       return { ok: true };
     }
 
-    const isDirty = this.baseGraph && !this._isClean();
-
-    // Case 4: Target dirty + different direction → BLOCKED
-    if (isDirty && this.mergeDirection && this.mergeDirection !== direction) {
-      return {
-        ok: false,
-        error: `Blocked: Panel ${this.id} has pending changes from "${this.mergeDirection}". Approve first.`,
-      };
-    }
-
-    // Case 2: Target clean → set baseGraph = current, apply incoming, show diff
-    if (!isDirty) {
-      this.baseGraph = deepClone(this.graph);
-    }
-    // Case 3 falls through: Target dirty + same direction → apply, recompute diff against ORIGINAL base
-
-    this.graph = mergeGraphs(this.graph, incomingGraph);
+    // Case 2: Normal merge — use target's baseGraph for deletion detection
+    this._pushHistory();
+    this.graph = mergeGraphs(this.graph, incomingGraph, this.baseGraph);
     this.mergeDirection = direction;
     this._syncCytoscape();
     this._applyDiffClasses();
@@ -228,6 +233,55 @@ export class Panel {
   /** Export graph as JSON file */
   exportGraph() {
     exportToFile(this.graph, `panel-${this.id}.json`);
+  }
+
+  /** Undo last operation */
+  undo() {
+    if (this._history.length === 0) {
+      showToast('Nothing to undo', 'info');
+      return false;
+    }
+    this._redoStack.push(deepClone(this.graph));
+    this.graph = this._history.pop();
+    this._syncCytoscape();
+    this._applyDiffClasses();
+    this._updateHeader();
+    this._emitChange();
+    showToast('Undo', 'info');
+    return true;
+  }
+
+  /** Redo last undone operation */
+  redo() {
+    if (this._redoStack.length === 0) {
+      showToast('Nothing to redo', 'info');
+      return false;
+    }
+    this._history.push(deepClone(this.graph));
+    if (this._history.length > this._maxHistory) this._history.shift();
+    this.graph = this._redoStack.pop();
+    this._syncCytoscape();
+    this._applyDiffClasses();
+    this._updateHeader();
+    this._emitChange();
+    showToast('Redo', 'info');
+    return true;
+  }
+
+  /** Restore from last approved state */
+  restoreFromApproved() {
+    if (!this.baseGraph) {
+      showToast('No approved state to restore', 'info');
+      return false;
+    }
+    this._pushHistory();
+    this.graph = deepClone(this.baseGraph);
+    this._syncCytoscape();
+    this._applyDiffClasses();  // Will show no diffs (graph === baseGraph)
+    this._updateHeader();
+    this._emitChange();
+    showToast(`Panel ${this.id} restored to approved state`, 'success');
+    return true;
   }
 
   /** Get selected nodes/edges as a subgraph */
@@ -257,9 +311,16 @@ export class Panel {
   }
 
   /** Check if panel has no pending changes */
-  _isClean() {
+  isClean() {
     if (!this.baseGraph) return true;
     return computeDiff(this.baseGraph, this.graph).length === 0;
+  }
+
+  /** Push current graph to history before mutation */
+  _pushHistory() {
+    this._history.push(deepClone(this.graph));
+    if (this._history.length > this._maxHistory) this._history.shift();
+    this._redoStack = [];  // Clear redo stack on new mutation
   }
 
   /** Sync Cytoscape instance from graph data */
@@ -364,7 +425,7 @@ export class Panel {
       parts.push(`Approved: ${time}`);
     }
 
-    if (this.baseGraph && !this._isClean()) {
+    if (this.baseGraph && !this.isClean()) {
       const diffCount = computeDiff(this.baseGraph, this.graph).length;
       parts.push(`${diffCount} change${diffCount !== 1 ? 's' : ''}`);
     }
@@ -384,8 +445,9 @@ export class Panel {
   /** Run layout */
   _runLayout() {
     if (this.cy.elements().length === 0) return;
+    const algo = window.__layoutAlgorithm || 'fcose';
     this.cy.layout({
-      name: this.cy.nodes().length > 1 ? 'fcose' : 'grid',
+      name: this.cy.nodes().length > 1 ? algo : 'grid',
       animate: false,
       fit: true,
       padding: 20,

@@ -2,22 +2,27 @@
  * LayoutManager - Recursive split tree for dynamic panel layout.
  *
  * LayoutNode =
- *   | { type: "panel", id: string }
+ *   | { type: "panel", id: string, name?: string }
  *   | { type: "split", direction: "h" | "v", children: [LayoutNode, LayoutNode], sizes: [number, number] }
  */
+
+import { renameDialog } from './dialogs.js';
 
 const MIN_PANEL_SIZE_PX = 200;
 
 export class LayoutManager {
-  constructor(rootEl, { onPanelCreate, onPanelDestroy, onMerge, getState, setState }) {
+  constructor(rootEl, { onPanelCreate, onPanelDestroy, onMerge, getState, setState, confirmClose, onResizeEnd }) {
     this.rootEl = rootEl;
     this.onPanelCreate = onPanelCreate;
     this.onPanelDestroy = onPanelDestroy;
     this.onMerge = onMerge;
     this._getState = getState || null;
     this._setState = setState || null;
+    this._confirmClose = confirmClose || null;
+    this._onResizeEnd = onResizeEnd || null;
     this.nextId = 1;
     this.tree = null;
+    this._zoomedPanelId = null;
   }
 
   /** Initialize with default 2-panel vertical split */
@@ -60,13 +65,14 @@ export class LayoutManager {
   /** Split a panel into two */
   splitPanel(panelId, direction) {
     const newId = String(this.nextId++);
+    const oldNode = this._findPanelNode(this.tree, panelId);
     this.tree = this._mapTree(this.tree, node => {
       if (node.type === 'panel' && node.id === panelId) {
         return {
           type: 'split',
           direction,
           children: [
-            { type: 'panel', id: panelId },
+            { type: 'panel', id: panelId, name: oldNode?.name },
             { type: 'panel', id: newId },
           ],
           sizes: [50, 50],
@@ -82,7 +88,34 @@ export class LayoutManager {
   closePanel(panelId) {
     if (this.getAllPanelIds().length <= 1) return;
 
+    if (this._zoomedPanelId === panelId) {
+      this._zoomedPanelId = null;
+    }
+
     this.tree = this._removePanel(this.tree, panelId);
+    this.render();
+  }
+
+  /** Add a new panel to the right of the root split */
+  addPanel() {
+    const newId = String(this.nextId++);
+    this.tree = {
+      type: 'split',
+      direction: 'v',
+      children: [this.tree, { type: 'panel', id: newId }],
+      sizes: [70, 30],
+    };
+    this.render();
+    return newId;
+  }
+
+  /** Toggle zoom on a panel (tmux-style) */
+  toggleZoom(panelId) {
+    if (this._zoomedPanelId === panelId) {
+      this._zoomedPanelId = null;
+    } else {
+      this._zoomedPanelId = panelId;
+    }
     this.render();
   }
 
@@ -112,6 +145,27 @@ export class LayoutManager {
     this.rootEl.innerHTML = '';
     if (!this.tree) return;
 
+    // Zoomed mode: render only the zoomed panel
+    if (this._zoomedPanelId) {
+      const zoomedNode = this._findPanelNode(this.tree, this._zoomedPanelId);
+      if (zoomedNode) {
+        const panelDom = this._renderPanel(zoomedNode);
+        panelDom.style.flex = '1';
+        panelDom.classList.add('zoomed');
+        this.rootEl.appendChild(panelDom);
+
+        // Create only the zoomed panel
+        const canvasEl = panelDom.querySelector('.panel-canvas');
+        this.onPanelCreate(this._zoomedPanelId, canvasEl);
+        if (savedStates.has(this._zoomedPanelId) && this._setState) {
+          this._setState(this._zoomedPanelId, savedStates.get(this._zoomedPanelId));
+        }
+        return;
+      }
+      // Zoomed panel not found — fall through to normal render
+      this._zoomedPanelId = null;
+    }
+
     const rootDom = this._renderNode(this.tree);
     rootDom.style.flex = '1';
     rootDom.style.display = 'flex';
@@ -124,7 +178,6 @@ export class LayoutManager {
       const canvasEl = this.rootEl.querySelector(`.panel-canvas[data-panel="${id}"]`);
       if (canvasEl) {
         this.onPanelCreate(id, canvasEl);
-        // Restore state if panel existed before
         if (savedStates.has(id) && this._setState) {
           this._setState(id, savedStates.get(id));
         }
@@ -140,6 +193,7 @@ export class LayoutManager {
 
   /** Build DOM for a panel leaf */
   _renderPanel(node) {
+    const displayName = node.name || `Panel ${node.id}`;
     const panel = document.createElement('div');
     panel.className = 'panel';
     panel.dataset.panelId = node.id;
@@ -148,20 +202,41 @@ export class LayoutManager {
     const header = document.createElement('div');
     header.className = 'panel-header';
     header.innerHTML = `
-      <span class="panel-name">Panel ${node.id}</span>
+      <span class="panel-name" title="Click to rename">${displayName}</span>
       <span class="panel-info"></span>
       <span class="panel-header-btns">
-        <button class="panel-split-btn" data-split="v" title="Split vertical">⬓</button>
-        <button class="panel-split-btn" data-split="h" title="Split horizontal">⬒</button>
-        <button class="panel-close-btn" title="Close panel">✕</button>
+        <button class="panel-zoom-btn" title="Zoom (toggle)">&#x2922;</button>
+        <button class="panel-split-btn" data-split="v" title="Split side by side">&#x2194;</button>
+        <button class="panel-split-btn" data-split="h" title="Split top/bottom">&#x2195;</button>
+        <button class="panel-close-btn" title="Close panel">&#x2715;</button>
       </span>
     `;
     panel.appendChild(header);
 
     // Wire header buttons
+    const nameEl = header.querySelector('.panel-name');
+    nameEl.style.cursor = 'pointer';
+    nameEl.onclick = () => {
+      renameDialog(displayName, panel).then(newName => {
+        if (newName !== null) {
+          node.name = newName || undefined;
+          nameEl.textContent = newName || `Panel ${node.id}`;
+          // Update merge gutter labels by re-rendering
+          this.render();
+        }
+      });
+    };
+
+    header.querySelector('.panel-zoom-btn').onclick = () => this.toggleZoom(node.id);
     header.querySelector('[data-split="v"]').onclick = () => this.splitPanel(node.id, 'v');
     header.querySelector('[data-split="h"]').onclick = () => this.splitPanel(node.id, 'h');
-    header.querySelector('.panel-close-btn').onclick = () => this.closePanel(node.id);
+    header.querySelector('.panel-close-btn').onclick = async () => {
+      if (this._confirmClose) {
+        const confirmed = await this._confirmClose(node.id);
+        if (!confirmed) return;
+      }
+      this.closePanel(node.id);
+    };
 
     // Canvas
     const canvas = document.createElement('div');
@@ -173,14 +248,19 @@ export class LayoutManager {
     const actions = document.createElement('div');
     actions.className = 'panel-actions';
     actions.innerHTML = `
-      <button data-action="add-node">+ Node</button>
-      <button data-action="add-edge">+ Edge</button>
-      <button data-action="edit">Edit</button>
-      <button data-action="delete">Delete</button>
-      <button data-action="clear">Clear</button>
+      <button data-action="add-node" class="btn-add">+ Node</button>
+      <button data-action="add-edge" class="btn-add">+ Edge</button>
+      <button data-action="edit" class="btn-edit">Edit</button>
+      <button data-action="delete" class="btn-delete">Delete</button>
+      <button data-action="clear" class="btn-clear">Clear</button>
       <button data-action="approve" class="btn-approve">Approve</button>
-      <button data-action="import">Import</button>
-      <button data-action="export">Export</button>
+      <span class="panel-actions-right">
+        <button data-action="undo" class="btn-icon" title="Undo (Ctrl+Z)">&#x21B6;</button>
+        <button data-action="redo" class="btn-icon" title="Redo (Ctrl+Shift+Z)">&#x21B7;</button>
+        <button data-action="restore" class="btn-restore" title="Restore to approved state">Restore</button>
+        <button data-action="import" class="btn-icon" title="Import graph">&#x1F4E5;</button>
+        <button data-action="export" class="btn-icon" title="Export graph">&#x1F4E4;</button>
+      </span>
     `;
     panel.appendChild(actions);
 
@@ -219,49 +299,125 @@ export class LayoutManager {
     return container;
   }
 
-  /** Build merge gutter with directional buttons and resize handle */
+  /** Get the display name for a panel node */
+  _panelName(node) {
+    return node.name || `Panel ${node.id}`;
+  }
+
+  /** Build merge gutter with zone-based directional buttons and resize handle */
   _renderMergeGutter(splitNode) {
     const isVertical = splitNode.direction === 'v';
     const gutter = document.createElement('div');
     gutter.className = 'merge-gutter';
 
-    // Get panel IDs on each side (leftmost/topmost panels)
-    const leftId = this._firstPanelId(splitNode.children[0]);
-    const rightId = this._firstPanelId(splitNode.children[1]);
+    const leftZones = this._getZones(splitNode.children[0], splitNode.direction);
+    const rightZones = this._getZones(splitNode.children[1], splitNode.direction);
 
-    const pushArrow = isVertical ? '>>' : '▼▼';
-    const pullArrow = isVertical ? '<<' : '▲▲';
+    // Use the side with more zones to drive the layout
+    const useLeftZones = leftZones.length >= rightZones.length;
+    const primaryZones = useLeftZones ? leftZones : rightZones;
+    const otherChild = useLeftZones ? splitNode.children[1] : splitNode.children[0];
+    const otherIds = this._allPanelIds(otherChild);
 
-    // Push button: left → right
-    const pushBtn = document.createElement('button');
-    pushBtn.className = 'merge-btn merge-btn-push';
-    pushBtn.textContent = `${leftId} ${pushArrow} ${rightId}`;
-    pushBtn.title = `Push Panel ${leftId} → Panel ${rightId}`;
-    pushBtn.onclick = () => this.onMerge(leftId, rightId);
+    const pushArrow = isVertical ? '>>' : '\u25BC\u25BC';
+    const pullArrow = isVertical ? '<<' : '\u25B2\u25B2';
 
-    // Pull button: right → left
-    const pullBtn = document.createElement('button');
-    pullBtn.className = 'merge-btn merge-btn-pull';
-    pullBtn.textContent = `${leftId} ${pullArrow} ${rightId}`;
-    pullBtn.title = `Pull Panel ${rightId} → Panel ${leftId}`;
-    pullBtn.onclick = () => this.onMerge(rightId, leftId);
+    for (const zone of primaryZones) {
+      const zoneEl = document.createElement('div');
+      zoneEl.className = 'merge-zone';
+      zoneEl.style.flex = `0 0 ${zone.size}%`;
+
+      for (const primary of zone.panels) {
+        for (const otherId of otherIds) {
+          const otherNode = this._findPanelNode(this.tree, otherId);
+          const [leftId, rightId] = useLeftZones
+            ? [primary.id, otherId]
+            : [otherId, primary.id];
+          const [leftName, rightName] = useLeftZones
+            ? [primary.name, this._panelName(otherNode)]
+            : [this._panelName(otherNode), primary.name];
+
+          // Push button: left → right
+          const pushBtn = document.createElement('button');
+          pushBtn.className = 'merge-btn merge-btn-push';
+          pushBtn.textContent = `${leftName} ${pushArrow} ${rightName}`;
+          pushBtn.title = `Push ${leftName} \u2192 ${rightName}`;
+          pushBtn.onclick = () => this.onMerge(leftId, rightId);
+          zoneEl.appendChild(pushBtn);
+
+          // Pull button: right → left
+          const pullBtn = document.createElement('button');
+          pullBtn.className = 'merge-btn merge-btn-pull';
+          pullBtn.textContent = `${leftName} ${pullArrow} ${rightName}`;
+          pullBtn.title = `Pull ${rightName} \u2192 ${leftName}`;
+          pullBtn.onclick = () => this.onMerge(rightId, leftId);
+          zoneEl.appendChild(pullBtn);
+        }
+      }
+
+      gutter.appendChild(zoneEl);
+    }
 
     // Resize handle
     const handle = document.createElement('div');
     handle.className = 'resize-handle';
     this._setupResize(handle, splitNode, gutter);
-
-    gutter.appendChild(pushBtn);
     gutter.appendChild(handle);
-    gutter.appendChild(pullBtn);
 
     return gutter;
+  }
+
+  /** Get zones for merge button alignment.
+   *  Returns array of { panels: [{id, name}], size: number } */
+  _getZones(childNode, gutterDirection) {
+    if (childNode.type === 'panel') {
+      return [{ panels: [{ id: childNode.id, name: this._panelName(childNode) }], size: 100 }];
+    }
+
+    const perpendicularDir = gutterDirection === 'v' ? 'h' : 'v';
+
+    if (childNode.direction === perpendicularDir) {
+      // Children split perpendicular to gutter → separate zones
+      return [
+        {
+          panels: this._allPanelNodes(childNode.children[0]),
+          size: childNode.sizes[0],
+        },
+        {
+          panels: this._allPanelNodes(childNode.children[1]),
+          size: childNode.sizes[1],
+        },
+      ];
+    }
+
+    // Children split parallel to gutter → one zone with all panels
+    return [{ panels: this._allPanelNodes(childNode), size: 100 }];
+  }
+
+  /** Get all panel nodes from a subtree as [{id, name}] */
+  _allPanelNodes(node) {
+    if (node.type === 'panel') return [{ id: node.id, name: this._panelName(node) }];
+    return [...this._allPanelNodes(node.children[0]), ...this._allPanelNodes(node.children[1])];
+  }
+
+  /** Find a panel node in the tree by id */
+  _findPanelNode(node, panelId) {
+    if (!node) return null;
+    if (node.type === 'panel') return node.id === panelId ? node : null;
+    return this._findPanelNode(node.children[0], panelId)
+      || this._findPanelNode(node.children[1], panelId);
   }
 
   /** Get the first (leftmost/topmost) panel ID from a subtree */
   _firstPanelId(node) {
     if (node.type === 'panel') return node.id;
     return this._firstPanelId(node.children[0]);
+  }
+
+  /** Get all panel IDs from a subtree */
+  _allPanelIds(node) {
+    if (node.type === 'panel') return [node.id];
+    return [...this._allPanelIds(node.children[0]), ...this._allPanelIds(node.children[1])];
   }
 
   /** Setup resize drag on a gutter handle */
@@ -302,6 +458,11 @@ export class LayoutManager {
         document.removeEventListener('mouseup', onMouseUp);
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
+
+        // Refresh layouts for affected panels after resize
+        if (this._onResizeEnd) {
+          this._onResizeEnd(splitNode);
+        }
       };
 
       document.body.style.cursor = isVertical ? 'col-resize' : 'row-resize';

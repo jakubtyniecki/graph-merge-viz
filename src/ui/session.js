@@ -76,6 +76,7 @@ function saveCurrentSession() {
   sessions[name] = {
     layout: _layoutManager.getLayout(),
     panels: panelStates,
+    layoutAlgorithm: window.__layoutAlgorithm || 'fcose',
     savedAt: new Date().toISOString(),
   };
   saveSessions(sessions);
@@ -91,6 +92,13 @@ function restoreSession(name) {
   session = migrateOldSession(session);
   sessions[name] = session;
   saveSessions(sessions);
+
+  // Restore layout algorithm
+  if (session.layoutAlgorithm) {
+    window.__layoutAlgorithm = session.layoutAlgorithm;
+    const select = document.getElementById('layout-algo');
+    if (select) select.value = session.layoutAlgorithm;
+  }
 
   // Restore layout (this destroys old panels and creates new ones)
   if (session.layout) {
@@ -196,6 +204,8 @@ function toggleHelp() {
     help.innerHTML = `
       <h3>Keyboard Shortcuts</h3>
       <dl>
+        <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd></dt><dd>Undo</dd>
+        <dt><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></dt><dd>Redo</dd>
         <dt><kbd>Ctrl</kbd>+<kbd>C</kbd></dt><dd>Copy selected subgraph</dd>
         <dt><kbd>Ctrl</kbd>+<kbd>V</kbd></dt><dd>Paste into focused panel</dd>
         <dt><kbd>Delete</kbd></dt><dd>Delete selected elements</dd>
