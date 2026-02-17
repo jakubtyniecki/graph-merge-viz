@@ -1,7 +1,7 @@
 import { showToast } from './toast.js';
 import { importFromFile } from '../graph/serializer.js';
 import { computeDiff } from '../graph/diff.js';
-import { formatDiffSummary } from './panel.js';
+import { formatDiffSummary, formatGroupedDiffSummary } from './panel.js';
 import cytoscape from 'cytoscape';
 import { baseStyles } from '../cytoscape/styles.js';
 
@@ -34,10 +34,21 @@ function openDialog(html, panelEl = null) {
 
     const rect = panelEl.getBoundingClientRect();
     dlg.style.position = 'fixed';
-    dlg.style.left = `${rect.left + rect.width / 2}px`;
-    dlg.style.top = `${rect.top + rect.height / 2}px`;
     dlg.style.transform = 'translate(-50%, -50%)';
     dlg.style.margin = '0';
+    // Center on panel, clamped so dialog stays within viewport
+    // Must set position first so offsetWidth/Height are valid
+    dlg.style.left = `${rect.left + rect.width / 2}px`;
+    dlg.style.top = `${rect.top + rect.height / 2}px`;
+    requestAnimationFrame(() => {
+      const dlgW = dlg.offsetWidth;
+      const dlgH = dlg.offsetHeight;
+      const rawLeft = rect.left + rect.width / 2;
+      const rawTop = rect.top + rect.height / 2;
+      const margin = 8;
+      dlg.style.left = `${Math.max(dlgW / 2 + margin, Math.min(rawLeft, window.innerWidth - dlgW / 2 - margin))}px`;
+      dlg.style.top = `${Math.max(dlgH / 2 + margin, Math.min(rawTop, window.innerHeight - dlgH / 2 - margin))}px`;
+    });
   } else {
     // Full-page modal with native backdrop
     dlg.showModal();
@@ -77,17 +88,17 @@ export function confirmDialog(title, message, panelEl = null) {
   });
 }
 
-/** Show an info dialog (OK button only), returns Promise<void> */
+/** Show an info dialog (✕ close only), returns Promise<void> */
 export function infoDialog(title, message, panelEl = null) {
   return new Promise(resolve => {
     const dlg = openDialog(`
-      <h3>${title}</h3>
-      <p>${message}</p>
-      <div class="dialog-actions">
-        <button id="dlg-ok" class="btn-primary">OK</button>
+      <div class="dialog-header">
+        <h3>${title}</h3>
+        <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
       </div>
+      <p>${message}</p>
     `, panelEl);
-    dlg.querySelector('#dlg-ok').onclick = () => { closeDialog(); resolve(); };
+    dlg.querySelector('#dlg-close-x').onclick = () => { closeDialog(); resolve(); };
   });
 }
 
@@ -256,58 +267,44 @@ export async function importGraphDialog(panel) {
   }
 }
 
-/** Show changelog dialog - pending changes or approval history */
-export function changelogDialog(panel) {
-  // Mode A: Pending Changes (panel has baseGraph and is not clean)
-  if (panel.baseGraph && !panel.isClean()) {
-    const diffs = computeDiff(panel.baseGraph, panel.graph);
-
-    let diffListHtml = '<div class="changelog-list">';
-    for (const diff of diffs) {
-      const actionSymbol = diff.action === 'added' ? '+' : diff.action === 'removed' ? '-' : '~';
-      const actionClass = `diff-${diff.action}`;
-      const typeLabel = diff.type === 'node' ? 'Node' : 'Edge';
-      const itemLabel = diff.type === 'node' ? `"${diff.key}"` : `"${diff.key}"`;
-
-      let detailsHtml = '';
-      if (diff.action === 'modified' && diff.changes) {
-        const changes = diff.changes.map(c => `${c.key}: ${c.oldValue} → ${c.newValue}`).join(', ');
-        detailsHtml = `<div style="font-size: 10px; color: var(--text-muted); margin-left: 20px;">${changes}</div>`;
-      }
-
-      diffListHtml += `
-        <div class="changelog-entry ${actionClass}">
-          <span style="font-weight: bold;">${actionSymbol}</span>
-          <span>${typeLabel} ${itemLabel}</span>
-        </div>
-        ${detailsHtml}
-      `;
-    }
-    diffListHtml += '</div>';
-
-    const dlg = openDialog(`
-      <h3>Pending Changes</h3>
-      ${diffListHtml}
-      <div class="dialog-actions">
-        <button id="dlg-close" class="btn-primary">Close</button>
+/** Show changeset summary dialog — grouped summary of pending changes */
+export function changesetSummaryDialog(panel) {
+  if (!panel.baseGraph) {
+    openDialog(`
+      <div class="dialog-header">
+        <h3>Changeset Summary</h3>
+        <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
       </div>
-    `, panel.panelEl);
-    dlg.querySelector('#dlg-close').onclick = closeDialog;
+      <p style="color: var(--text-muted); text-align: center; padding: 20px;">No baseline — approve first to track changes.</p>
+    `, panel.panelEl).querySelector('#dlg-close-x').onclick = closeDialog;
     return;
   }
 
-  // Mode B: Approval History
+  const diffs = computeDiff(panel.baseGraph, panel.graph);
+  const summaryText = formatGroupedDiffSummary(diffs);
+
+  openDialog(`
+    <div class="dialog-header">
+      <h3>Changeset Summary</h3>
+      <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
+    </div>
+    <p class="changeset-summary-text">${summaryText}</p>
+  `, panel.panelEl).querySelector('#dlg-close-x').onclick = closeDialog;
+}
+
+/** Show changelog dialog — always shows approval history */
+export function changelogDialog(panel) {
   const history = panel._approvalHistory || [];
 
   if (history.length === 0) {
     const dlg = openDialog(`
-      <h3>Approval History</h3>
-      <p style="color: var(--text-muted); text-align: center; padding: 20px;">No history yet.</p>
-      <div class="dialog-actions">
-        <button id="dlg-close" class="btn-primary">Close</button>
+      <div class="dialog-header">
+        <h3>Approval History</h3>
+        <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
       </div>
+      <p style="color: var(--text-muted); text-align: center; padding: 20px;">No approvals yet.</p>
     `, panel.panelEl);
-    dlg.querySelector('#dlg-close').onclick = closeDialog;
+    dlg.querySelector('#dlg-close-x').onclick = closeDialog;
     return;
   }
 
@@ -331,11 +328,11 @@ export function changelogDialog(panel) {
   historyListHtml += '</div>';
 
   const dlg = openDialog(`
-    <h3>Approval History</h3>
-    ${historyListHtml}
-    <div class="dialog-actions">
-      <button id="dlg-close" class="btn-primary">Close</button>
+    <div class="dialog-header">
+      <h3>Approval History</h3>
+      <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
     </div>
+    ${historyListHtml}
   `, panel.panelEl);
 
   // Wire preview buttons
@@ -343,60 +340,198 @@ export function changelogDialog(panel) {
     btn.onclick = () => {
       const index = parseInt(btn.dataset.index);
       const entry = history[index];
-      const timestamp = new Date(entry.timestamp);
-      const title = `Approval #${index + 1} — ${timestamp.toLocaleTimeString()}`;
       closeDialog();
-      graphPreviewDialog(entry.graph, title, panel.panelEl);
+      approvalPreviewDialog(entry, index, panel);
     };
   });
 
-  dlg.querySelector('#dlg-close').onclick = closeDialog;
+  dlg.querySelector('#dlg-close-x').onclick = closeDialog;
 }
 
-/** Show a readonly graph preview in a modal */
-export function graphPreviewDialog(graph, title, panelEl) {
+/** Show enhanced approval preview with maximize/minimize and diff toggle */
+export function approvalPreviewDialog(entry, index, panel) {
+  const panelEl = panel.panelEl;
+  const hasBaseline = entry.baseGraph !== null && entry.baseGraph !== undefined;
+  const title = `Approval #${index + 1} — ${new Date(entry.timestamp).toLocaleTimeString()}`;
+
+  const toggleDisabledAttr = hasBaseline ? '' : 'disabled title="No baseline available for this entry"';
+
   const dlg = openDialog(`
-    <h3>${title}</h3>
+    <div class="preview-header">
+      <h3 style="margin:0">${title}</h3>
+      <div style="display:flex;gap:4px;align-items:center">
+        <button id="preview-maximize" class="btn-icon" title="Maximize/minimize preview">&#x2922;</button>
+        <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
+      </div>
+    </div>
     <div class="preview-canvas" id="preview-canvas"></div>
-    <div class="dialog-actions">
-      <button id="dlg-close" class="btn-primary">Close</button>
+    <div class="preview-info-panel" id="preview-info-panel"></div>
+    <div class="preview-footer">
+      <button id="preview-info" class="btn-icon" title="Show grouped changeset summary for this approval">&#x24D8;</button>
+      <div class="preview-toggle">
+        <button id="toggle-approved" class="preview-toggle-btn active">Approved State</button>
+        <button id="toggle-changeset" class="preview-toggle-btn" ${toggleDisabledAttr}>Changeset View</button>
+      </div>
     </div>
   `, panelEl);
 
-  // Set larger dialog size
-  dlg.style.minWidth = '400px';
-  dlg.style.minHeight = '350px';
+  // Default size
+  dlg.style.minWidth = '420px';
+  dlg.style.minHeight = '380px';
   dlg.style.maxWidth = '80vw';
   dlg.style.maxHeight = '80vh';
 
   const canvasEl = dlg.querySelector('#preview-canvas');
+  const infoPanelEl = dlg.querySelector('#preview-info-panel');
 
-  // Create temporary Cytoscape instance
-  const elements = [];
-  for (const node of graph.nodes) {
-    elements.push({
-      group: 'nodes',
-      data: { id: node.label, label: node.label },
-    });
-  }
-  for (const edge of graph.edges) {
-    elements.push({
-      group: 'edges',
-      data: { id: `${edge.source}→${edge.target}`, source: edge.source, target: edge.target },
-    });
-  }
+  // Maximize toggle
+  let maximized = false;
+  dlg.querySelector('#preview-maximize').onclick = () => {
+    maximized = !maximized;
+    if (maximized) {
+      dlg.style.width = 'calc(100vw - 40px)';
+      dlg.style.height = 'calc(100vh - 40px)';
+      dlg.style.maxWidth = 'none';
+      dlg.style.maxHeight = 'none';
+    } else {
+      dlg.style.width = '';
+      dlg.style.height = '';
+      dlg.style.maxWidth = '80vw';
+      dlg.style.maxHeight = '80vh';
+    }
+    if (!infoPanelEl.classList.contains('visible')) {
+      cy.resize();
+      cy.fit(undefined, 20);
+    }
+  };
+
+  // Build elements for approved state (plain)
+  const buildApprovedElements = () => {
+    const elements = [];
+    for (const node of entry.graph.nodes) {
+      elements.push({ group: 'nodes', data: { id: node.label, label: node.label } });
+    }
+    for (const edge of entry.graph.edges) {
+      elements.push({ group: 'edges', data: { id: `${edge.source}→${edge.target}`, source: edge.source, target: edge.target } });
+    }
+    return elements;
+  };
+
+  // Build elements for changeset view (diff-highlighted)
+  const buildChangesetElements = () => {
+    if (!hasBaseline) return buildApprovedElements();
+    const diffs = computeDiff(entry.baseGraph, entry.graph);
+    const diffMap = new Map(diffs.map(d => [d.key, d.action]));
+
+    const elements = [];
+    for (const node of entry.graph.nodes) {
+      const action = diffMap.get(node.label) || null;
+      elements.push({
+        group: 'nodes',
+        data: { id: node.label, label: node.label },
+        classes: action ? `diff-${action}` : '',
+      });
+    }
+    for (const edge of entry.graph.edges) {
+      const key = `${edge.source}→${edge.target}`;
+      const action = diffMap.get(key) || null;
+      elements.push({
+        group: 'edges',
+        data: { id: key, source: edge.source, target: edge.target },
+        classes: action ? `diff-${action}` : '',
+      });
+    }
+    // Add ghost nodes/edges for removed elements
+    if (entry.baseGraph) {
+      const currentNodeLabels = new Set(entry.graph.nodes.map(n => n.label));
+      const currentEdgeKeys = new Set(entry.graph.edges.map(e => `${e.source}→${e.target}`));
+      for (const node of entry.baseGraph.nodes) {
+        if (!currentNodeLabels.has(node.label)) {
+          elements.push({ group: 'nodes', data: { id: node.label, label: node.label }, classes: 'diff-removed' });
+        }
+      }
+      for (const edge of entry.baseGraph.edges) {
+        const key = `${edge.source}→${edge.target}`;
+        if (!currentEdgeKeys.has(key)) {
+          const allNodes = new Set([...currentNodeLabels, ...entry.baseGraph.nodes.map(n => n.label)]);
+          if (allNodes.has(edge.source) && allNodes.has(edge.target)) {
+            elements.push({ group: 'edges', data: { id: key, source: edge.source, target: edge.target }, classes: 'diff-removed' });
+          }
+        }
+      }
+    }
+    return elements;
+  };
 
   const cy = cytoscape({
     container: canvasEl,
-    elements,
+    elements: buildApprovedElements(),
     style: baseStyles,
     layout: { name: 'fcose', animate: false, fit: true, padding: 20 },
-    autoungrabify: true, // Readonly: nodes can't be dragged
+    autoungrabify: true,
     userZoomingEnabled: true,
     userPanningEnabled: true,
   });
 
-  dlg.querySelector('#dlg-close').onclick = () => {
+  // Toggle buttons
+  let currentMode = 'approved';
+  const btnApproved = dlg.querySelector('#toggle-approved');
+  const btnChangeset = dlg.querySelector('#toggle-changeset');
+
+  const switchMode = (mode) => {
+    if (mode === currentMode) return;
+    currentMode = mode;
+    btnApproved.classList.toggle('active', mode === 'approved');
+    btnChangeset.classList.toggle('active', mode === 'changeset');
+
+    cy.elements().remove();
+    const newElements = mode === 'changeset' ? buildChangesetElements() : buildApprovedElements();
+    cy.add(newElements);
+    cy.layout({ name: 'fcose', animate: false, fit: true, padding: 20 }).run();
+  };
+
+  btnApproved.onclick = () => switchMode('approved');
+  if (hasBaseline) {
+    btnChangeset.onclick = () => switchMode('changeset');
+  }
+
+  // Footer info button — toggle inline info panel (avoids nested dialog layering bug)
+  const infoBtn = dlg.querySelector('#preview-info');
+  let infoVisible = false;
+  infoBtn.onclick = () => {
+    infoVisible = !infoVisible;
+    if (infoVisible) {
+      if (!hasBaseline) {
+        infoPanelEl.innerHTML = `
+          <p style="color: var(--text-muted); padding: 8px;">No baseline available for this approval entry.</p>
+          <button id="info-back" style="margin-top:8px">&#x2190; Back</button>
+        `;
+      } else {
+        const diffs = computeDiff(entry.baseGraph, entry.graph);
+        const summaryText = formatGroupedDiffSummary(diffs);
+        infoPanelEl.innerHTML = `
+          <p class="changeset-summary-text">${summaryText}</p>
+          <button id="info-back" style="margin-top:8px">&#x2190; Back</button>
+        `;
+      }
+      infoPanelEl.classList.add('visible');
+      canvasEl.style.display = 'none';
+      infoPanelEl.querySelector('#info-back').onclick = () => {
+        infoVisible = false;
+        infoPanelEl.classList.remove('visible');
+        canvasEl.style.display = '';
+        cy.resize();
+        cy.fit(undefined, 20);
+      };
+    } else {
+      infoPanelEl.classList.remove('visible');
+      canvasEl.style.display = '';
+      cy.resize();
+      cy.fit(undefined, 20);
+    }
+  };
+
+  dlg.querySelector('#dlg-close-x').onclick = () => {
     cy.destroy();
     closeDialog();
   };

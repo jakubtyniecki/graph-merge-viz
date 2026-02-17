@@ -26,11 +26,12 @@ export class LayoutManager {
     this._zoomSavedStates = new Map();
   }
 
-  /** Initialize with default 2-panel vertical split */
+  /** Initialize with default 2-panel split (vertical on wide, horizontal on narrow) */
   init() {
+    const direction = window.innerWidth <= 600 ? 'h' : 'v';
     this.tree = {
       type: 'split',
-      direction: 'v',
+      direction,
       children: [
         { type: 'panel', id: String(this.nextId++) },
         { type: 'panel', id: String(this.nextId++) },
@@ -97,12 +98,13 @@ export class LayoutManager {
     this.render();
   }
 
-  /** Add a new panel to the right of the root split */
+  /** Add a new panel (to the right on wide screens, below on narrow) */
   addPanel() {
     const newId = String(this.nextId++);
+    const direction = window.innerWidth <= 600 ? 'h' : 'v';
     this.tree = {
       type: 'split',
-      direction: 'v',
+      direction,
       children: [this.tree, { type: 'panel', id: newId }],
       sizes: [70, 30],
     };
@@ -276,16 +278,17 @@ export class LayoutManager {
     actions.className = 'panel-actions';
     actions.innerHTML = `
       <span class="panel-actions-left">
-        <button data-action="add-node" class="btn-add" title="Add a new labeled node to the graph">+ Node</button>
-        <button data-action="add-edge" class="btn-add" title="Add a new directed edge between two existing nodes">+ Edge</button>
+        <button data-action="add-node" class="btn-add" title="Add a new labeled node to the graph"><span class="btn-label">+ Node</span><span class="btn-icon-only">+N</span></button>
+        <button data-action="add-edge" class="btn-add" title="Add a new directed edge between two existing nodes"><span class="btn-label">+ Edge</span><span class="btn-icon-only">+E</span></button>
         <span class="action-separator"></span>
-        <button data-action="approve" class="btn-approve" title="Snapshot current state as baseline and clear all diffs">Approve</button>
-        <button data-action="restore" class="btn-restore" title="Revert graph to last approved state (undo all changes since approval)">Restore</button>
+        <button data-action="approve" class="btn-approve" title="Snapshot current state as baseline and clear all diffs"><span class="btn-label">Approve</span><span class="btn-icon-only">&#x2713;</span></button>
+        <button data-action="restore" class="btn-restore" title="Revert graph to last approved state (undo all changes since approval)"><span class="btn-label">Restore</span><span class="btn-icon-only">&#x238C;</span></button>
         <span class="action-separator"></span>
-        <button data-action="clear" class="btn-clear" title="Reset panel to empty state (clears graph, approval history, and diffs)">Clear</button>
+        <button data-action="clear" class="btn-clear" title="Reset panel to empty state (clears graph, approval history, and diffs)"><span class="btn-label">Clear</span><span class="btn-icon-only">&#x232B;</span></button>
       </span>
       <span class="panel-actions-right">
-        <button data-action="changelog" class="btn-icon" title="View changelog">&#x2630;</button>
+        <button data-action="changeset" class="btn-icon" title="View pending changeset summary">&#x24D8;</button>
+        <button data-action="changelog" class="btn-icon" title="View approval history">&#x2630;</button>
         <button data-action="refresh" class="btn-icon" title="Re-layout and resize the graph canvas">&#x21BB;</button>
         <span class="action-separator"></span>
         <button data-action="undo" class="btn-icon" title="Undo last graph operation (Ctrl+Z)">&#x21B6;</button>

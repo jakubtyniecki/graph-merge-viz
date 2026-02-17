@@ -682,12 +682,86 @@ dialog .btn-primary:hover {
 
 /* Changelog dialog styles */
 .preview-canvas {
-  height: 300px;
+  flex: 1;
+  min-height: 200px;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   overflow: hidden;
+  margin-bottom: 0;
+}
+
+/* Preview dialog layout */
+dialog:has(.preview-header) {
+  display: flex;
+  flex-direction: column;
+  min-width: 420px;
+  min-height: 380px;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.preview-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  margin-top: 8px;
+}
+
+.preview-toggle {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.preview-toggle-btn {
+  flex: 1;
+  padding: 4px 10px;
+  font-size: 11px;
+  background: var(--surface);
+  color: var(--text-muted);
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.preview-toggle-btn:not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+
+.preview-toggle-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.preview-toggle-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Changeset summary text */
+.changeset-summary-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  padding: 12px;
+  background: rgba(0,0,0,0.15);
+  border-radius: 4px;
+  border: 1px solid var(--border);
   margin-bottom: 12px;
+  white-space: pre-wrap;
 }
 
 .changelog-list {
@@ -735,4 +809,175 @@ dialog .btn-primary:hover {
 
 .btn-preview:hover {
   background: var(--border);
+}
+
+/* ===== Desktop defaults for responsive elements ===== */
+.title-short { display: none; }
+.btn-icon-only { display: none; }
+
+/* ===== Dialog header ===== */
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.dialog-header h3 {
+  margin-bottom: 0;
+}
+
+.btn-close-icon {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  padding: 2px 6px;
+  min-width: 28px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.btn-close-icon:hover {
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+/* ===== Session dropdown ===== */
+.session-menu-wrapper {
+  position: relative;
+}
+
+.session-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  z-index: 50;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  min-width: 120px;
+}
+
+.session-dropdown[hidden] {
+  display: none;
+}
+
+.session-dropdown button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  min-height: unset;
+}
+
+.session-dropdown button:hover {
+  background: var(--surface-hover);
+}
+
+/* ===== Preview info panel (inline, replaces canvas) ===== */
+.preview-info-panel {
+  display: none;
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.preview-info-panel.visible {
+  display: block;
+}
+
+/* ===== Mobile responsive ===== */
+@media (max-width: 600px) {
+  /* Header */
+  #app-header {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--header-height);
+    padding: 4px 8px;
+    gap: 4px;
+  }
+
+  .title-full { display: none; }
+  .title-short { display: inline; }
+
+  .header-section-label { display: none; }
+  .header-separator { display: none; }
+
+  #header-controls {
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .header-section { gap: 4px; }
+
+  /* Panel actions: icons only */
+  .btn-label { display: none; }
+  .btn-icon-only { display: inline; }
+
+  .panel-actions {
+    gap: 2px;
+    padding: 2px 4px;
+    min-height: 34px;
+  }
+
+  /* Dialogs: fit viewport */
+  dialog {
+    min-width: unset;
+    max-width: calc(100vw - 24px);
+    width: calc(100vw - 24px);
+  }
+
+  dialog:has(.preview-header) {
+    min-width: unset;
+    min-height: unset;
+    width: calc(100vw - 24px);
+  }
+
+  /* Merge gutter buttons */
+  .merge-btn {
+    font-size: 9px;
+    padding: 4px 6px;
+  }
+
+  /* Touch targets */
+  button { min-height: 36px; }
+
+  .panel-split-btn,
+  .panel-close-btn,
+  .panel-zoom-btn {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .btn-icon {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  /* Session dropdown overrides: let buttons be normal height inside dropdown */
+  .session-dropdown button {
+    min-height: unset;
+  }
+
+  /* Toast: full width at bottom */
+  #toast-container {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
+  }
+
+  .toast { max-width: 100%; }
 }
