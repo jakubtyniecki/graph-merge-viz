@@ -5,6 +5,14 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['cytoscape', 'cytoscape-fcose'],
+        },
+      },
+    },
   },
   server: {
     host: '0.0.0.0',
