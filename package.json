@@ -1,20 +1,47 @@
 {
-  "name": "graph-merge",
+  "name": "@jakubtyniecki/graph-merge-viz",
   "version": "1.0.0",
   "type": "module",
+  "description": "Interactive web tool for learning graph merge algorithms through visual diff and approval workflows",
+  "keywords": [
+    "graph",
+    "merge",
+    "visualization",
+    "cytoscape",
+    "diff",
+    "algorithm",
+    "education",
+    "interactive"
+  ],
+  "author": "Jakub Tyniecki",
+  "license": "MIT",
+  "homepage": "https://github.com/jakubtyniecki/graph-merge-viz",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jakubtyniecki/graph-merge-viz.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jakubtyniecki/graph-merge-viz/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "dist",
+    "server.js"
+  ],
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
+    "prepare": "npm run build",
     "start": "node server.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
     "cytoscape": "^3.33.1",
     "cytoscape-fcose": "^2.2.0",
-    "express": "^5.2.1",
     "vite": "^7.3.1"
   }
 }

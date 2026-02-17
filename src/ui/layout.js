@@ -262,6 +262,13 @@ export class LayoutManager {
     const canvas = document.createElement('div');
     canvas.className = 'panel-canvas';
     canvas.dataset.panel = node.id;
+
+    // Diff overlay (summary of changes)
+    const diffOverlay = document.createElement('div');
+    diffOverlay.className = 'diff-overlay';
+    diffOverlay.dataset.panelDiff = node.id;
+    canvas.appendChild(diffOverlay);
+
     panel.appendChild(canvas);
 
     // Action bar
@@ -278,6 +285,7 @@ export class LayoutManager {
         <button data-action="clear" class="btn-clear" title="Reset panel to empty state (clears graph, approval history, and diffs)">Clear</button>
       </span>
       <span class="panel-actions-right">
+        <button data-action="changelog" class="btn-icon" title="View changelog">&#x2630;</button>
         <button data-action="refresh" class="btn-icon" title="Re-layout and resize the graph canvas">&#x21BB;</button>
         <span class="action-separator"></span>
         <button data-action="undo" class="btn-icon" title="Undo last graph operation (Ctrl+Z)">&#x21B6;</button>
@@ -484,19 +492,19 @@ export class LayoutManager {
   _setupResize(handle, splitNode, gutterEl) {
     const isVertical = splitNode.direction === 'v';
 
-    handle.addEventListener('mousedown', e => {
-      e.preventDefault();
+    // Shared resize logic for both mouse and touch
+    const startResize = (initialClientPos) => {
       const parent = gutterEl.parentElement;
-      if (!parent) return;
+      if (!parent) return null;
 
       const parentRect = parent.getBoundingClientRect();
       const totalSize = isVertical ? parentRect.width : parentRect.height;
       const gutterSize = isVertical ? gutterEl.offsetWidth : gutterEl.offsetHeight;
 
-      const onMouseMove = ev => {
+      const onMove = (clientPos) => {
         const pos = isVertical
-          ? ev.clientX - parentRect.left
-          : ev.clientY - parentRect.top;
+          ? clientPos.x - parentRect.left
+          : clientPos.y - parentRect.top;
 
         const available = totalSize - gutterSize;
         let ratio = pos / totalSize;
@@ -513,9 +521,7 @@ export class LayoutManager {
         }
       };
 
-      const onMouseUp = () => {
-        document.removeEventListener('mousemove', onMouseMove);
-        document.removeEventListener('mouseup', onMouseUp);
+      const onEnd = () => {
         document.body.style.cursor = '';
         document.body.style.userSelect = '';
 
@@ -527,8 +533,50 @@ export class LayoutManager {
 
       document.body.style.cursor = isVertical ? 'col-resize' : 'row-resize';
       document.body.style.userSelect = 'none';
+
+      return { onMove, onEnd };
+    };
+
+    // Mouse events
+    handle.addEventListener('mousedown', e => {
+      e.preventDefault();
+      const resize = startResize({ x: e.clientX, y: e.clientY });
+      if (!resize) return;
+
+      const onMouseMove = ev => resize.onMove({ x: ev.clientX, y: ev.clientY });
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        resize.onEnd();
+      };
+
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
+    });
+
+    // Touch events
+    handle.addEventListener('touchstart', e => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const resize = startResize({ x: touch.clientX, y: touch.clientY });
+      if (!resize) return;
+
+      const onTouchMove = ev => {
+        ev.preventDefault();
+        const t = ev.touches[0];
+        resize.onMove({ x: t.clientX, y: t.clientY });
+      };
+
+      const onTouchEnd = () => {
+        document.removeEventListener('touchmove', onTouchMove);
+        document.removeEventListener('touchend', onTouchEnd);
+        document.removeEventListener('touchcancel', onTouchEnd);
+        resize.onEnd();
+      };
+
+      document.addEventListener('touchmove', onTouchMove, { passive: false });
+      document.addEventListener('touchend', onTouchEnd);
+      document.addEventListener('touchcancel', onTouchEnd);
     });
   }
 

@@ -6,6 +6,25 @@ import { createGraph, deepClone, isEmpty, nodeKey, edgeKey, getAncestorSubgraph 
 import { exportToFile } from '../graph/serializer.js';
 import { showToast } from './toast.js';
 
+/** Format diff summary as compact string: "+3n ~1n -2n +1e" */
+export function formatDiffSummary(diffs) {
+  const c = { an: 0, mn: 0, rn: 0, ae: 0, me: 0, re: 0 };
+  for (const d of diffs) {
+    const isNode = d.type === 'node';
+    if (d.action === 'added') isNode ? c.an++ : c.ae++;
+    else if (d.action === 'modified') isNode ? c.mn++ : c.me++;
+    else if (d.action === 'removed') isNode ? c.rn++ : c.re++;
+  }
+  const parts = [];
+  if (c.an) parts.push(`+${c.an}n`);
+  if (c.mn) parts.push(`~${c.mn}n`);
+  if (c.rn) parts.push(`-${c.rn}n`);
+  if (c.ae) parts.push(`+${c.ae}e`);
+  if (c.me) parts.push(`~${c.me}e`);
+  if (c.re) parts.push(`-${c.re}e`);
+  return parts.join(' ');
+}
+
 export class Panel {
   constructor(id, container) {
     this.id = id;
@@ -17,6 +36,8 @@ export class Panel {
     this._history = [];
     this._redoStack = [];
     this._maxHistory = 10;
+    this._approvalHistory = [];
+    this._maxApprovalHistory = 20;
 
     this.cy = cytoscape({
       container,
@@ -54,6 +75,11 @@ export class Panel {
       lastApproval: this.lastApproval,
       _history: this._history.map(g => deepClone(g)),
       _redoStack: this._redoStack.map(g => deepClone(g)),
+      _approvalHistory: this._approvalHistory.map(entry => ({
+        graph: deepClone(entry.graph),
+        timestamp: entry.timestamp,
+        diffSummary: entry.diffSummary,
+      })),
     };
   }
 
@@ -65,6 +91,11 @@ export class Panel {
     this.lastApproval = state.lastApproval || null;
     this._history = state._history ? state._history.map(g => deepClone(g)) : [];
     this._redoStack = state._redoStack ? state._redoStack.map(g => deepClone(g)) : [];
+    this._approvalHistory = state._approvalHistory ? state._approvalHistory.map(entry => ({
+      graph: deepClone(entry.graph),
+      timestamp: entry.timestamp,
+      diffSummary: entry.diffSummary,
+    })) : [];
     this._syncCytoscape();
     this._applyDiffClasses();
     this._updateHeader();
@@ -190,6 +221,7 @@ export class Panel {
     this.baseGraph = null;
     this.mergeDirection = null;
     this.lastApproval = null;
+    this._approvalHistory = [];
     this._syncCytoscape();
     this._applyDiffClasses();
     this._updateHeader();
@@ -198,6 +230,25 @@ export class Panel {
 
   /** Approve: snapshot current as base, clear diff */
   approve() {
+    // Compute diff summary before overwriting baseGraph
+    let diffSummary = '(initial)';
+    if (this.baseGraph) {
+      const diffs = computeDiff(this.baseGraph, this.graph);
+      diffSummary = diffs.length > 0 ? formatDiffSummary(diffs) : '(no changes)';
+    }
+
+    // Push to approval history
+    this._approvalHistory.push({
+      graph: deepClone(this.graph),
+      timestamp: new Date().toISOString(),
+      diffSummary,
+    });
+
+    // Cap history at max size
+    if (this._approvalHistory.length > this._maxApprovalHistory) {
+      this._approvalHistory.shift();
+    }
+
     this.baseGraph = deepClone(this.graph);
     this.mergeDirection = null;
     this.lastApproval = new Date().toISOString();
@@ -438,6 +489,8 @@ export class Panel {
         ele.addClass(`diff-${diff.action}`);
       }
     }
+
+    this._updateDiffOverlay();
   }
 
   /** Clear all diff classes */
@@ -445,6 +498,7 @@ export class Panel {
     this.cy.elements().removeClass('diff-added diff-removed diff-modified');
     // Remove ghost removed elements
     this.cy.$('.diff-removed').remove();
+    this._updateDiffOverlay();
   }
 
   /** Update panel header with state info */
@@ -490,6 +544,26 @@ export class Panel {
       fit: true,
       padding: 20,
     }).run();
+  }
+
+  /** Update diff overlay with compact summary */
+  _updateDiffOverlay() {
+    const overlayEl = this.container.parentElement?.querySelector(`.diff-overlay[data-panel-diff="${this.id}"]`);
+    if (!overlayEl) return;
+
+    if (!this.baseGraph) {
+      overlayEl.classList.remove('visible');
+      return;
+    }
+
+    const diffs = computeDiff(this.baseGraph, this.graph);
+    if (diffs.length === 0) {
+      overlayEl.classList.remove('visible');
+      return;
+    }
+
+    overlayEl.textContent = formatDiffSummary(diffs);
+    overlayEl.classList.add('visible');
   }
 
   /** Emit a change event for session auto-save */

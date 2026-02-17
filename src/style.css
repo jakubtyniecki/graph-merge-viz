@@ -21,6 +21,7 @@
   --diff-modified: #FF9800;
   --header-height: 48px;
   --action-bar-height: 40px;
+  --status-bar-height: 24px;
   --gutter-size: 12px;
 }
 
@@ -32,6 +33,11 @@ html, body {
   overflow: hidden;
 }
 
+body {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Header */
 #app-header {
   height: var(--header-height);
@@ -41,6 +47,7 @@ html, body {
   padding: 0 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 #app-header h1 {
@@ -91,7 +98,8 @@ html, body {
 /* Main layout */
 #app {
   display: flex;
-  height: calc(100vh - var(--header-height));
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -164,7 +172,7 @@ html, body {
 }
 
 .split-v > .merge-gutter .resize-handle {
-  width: 4px;
+  width: 8px;
   height: 40px;
   cursor: col-resize;
   top: 8px;
@@ -174,7 +182,7 @@ html, body {
 
 .split-h > .merge-gutter .resize-handle {
   width: 40px;
-  height: 4px;
+  height: 8px;
   cursor: row-resize;
   top: 50%;
   left: 8px;
@@ -184,7 +192,7 @@ html, body {
 /* Merge buttons */
 .merge-btn {
   font-size: 10px;
-  padding: 3px 6px;
+  padding: 6px 8px;
   border-radius: 3px;
   cursor: pointer;
   white-space: nowrap;
@@ -234,6 +242,7 @@ html, body {
   margin: 4px;
   border-radius: 6px;
   overflow: hidden;
+  min-height: 0;
 }
 
 .panel-overlay {
@@ -250,7 +259,8 @@ html, body {
   padding: 6px 12px;
   background: rgba(0, 0, 0, 0.2);
   border-bottom: 1px solid var(--border);
-  min-height: 32px;
+  min-height: 40px;
+  flex-shrink: 0;
 }
 
 .panel-name {
@@ -285,6 +295,7 @@ html, body {
   background: rgba(0, 0, 0, 0.15);
   flex-wrap: wrap;
   min-height: var(--action-bar-height);
+  flex-shrink: 0;
 }
 
 .panel-actions-left {
@@ -391,8 +402,9 @@ button:active {
 .panel-split-btn,
 .panel-close-btn,
 .panel-zoom-btn {
-  font-size: 11px;
-  padding: 2px 6px;
+  font-size: 16px;
+  padding: 4px 8px;
+  min-width: 32px;
   line-height: 1;
 }
 
@@ -434,12 +446,12 @@ button:active {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 6px 12px;
+  padding: 8px 14px;
   border: none;
   border-radius: 0;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -626,4 +638,101 @@ dialog .btn-primary:hover {
   border-radius: 3px;
   border: 1px solid var(--border);
   font-size: 11px;
+}
+
+/* Status bar */
+#status-bar {
+  height: var(--status-bar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+#status-bar .status-left,
+#status-bar .status-right {
+  display: flex;
+  gap: 16px;
+}
+
+/* Diff overlay (per-panel summary) */
+.diff-overlay {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: 'Courier New', monospace;
+  color: var(--text);
+  pointer-events: none;
+  z-index: 10;
+  display: none;
+}
+
+.diff-overlay.visible {
+  display: block;
+}
+
+/* Changelog dialog styles */
+.preview-canvas {
+  height: 300px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.changelog-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.changelog-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.changelog-entry:last-child {
+  border-bottom: none;
+}
+
+.changelog-entry.diff-added {
+  color: var(--diff-added);
+}
+
+.changelog-entry.diff-removed {
+  color: var(--diff-removed);
+}
+
+.changelog-entry.diff-modified {
+  color: var(--diff-modified);
+}
+
+.btn-preview {
+  background: var(--surface-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-preview:hover {
+  background: var(--border);
 }

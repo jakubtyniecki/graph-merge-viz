@@ -1,4 +1,5 @@
 import { showToast } from './toast.js';
+import { updateStatusBar } from './status-bar.js';
 
 const STORAGE_KEY = 'graph-merge-sessions';
 const ACTIVE_KEY = 'graph-merge-active-session';
@@ -115,6 +116,7 @@ function restoreSession(name) {
   }
 
   setActiveSessionName(name);
+  updateStatusBar();
 }
 
 function debouncedSave() {
@@ -147,6 +149,7 @@ function renderSessionControls() {
     saveCurrentSession();
     restoreSession(e.target.value);
     showToast(`Switched to "${e.target.value}"`, 'info');
+    updateStatusBar();
   };
 
   container.querySelector('#session-new').onclick = () => {
@@ -159,6 +162,7 @@ function renderSessionControls() {
     saveCurrentSession();
     renderSessionControls();
     showToast(`Created session "${name.trim()}"`, 'success');
+    updateStatusBar();
   };
 
   container.querySelector('#session-rename').onclick = () => {
@@ -189,6 +193,7 @@ function renderSessionControls() {
     }
     renderSessionControls();
     showToast(`Deleted session "${name}"`, 'info');
+    updateStatusBar();
   };
 
   container.querySelector('#help-btn').onclick = () => {

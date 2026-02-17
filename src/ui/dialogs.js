@@ -1,5 +1,9 @@
 import { showToast } from './toast.js';
 import { importFromFile } from '../graph/serializer.js';
+import { computeDiff } from '../graph/diff.js';
+import { formatDiffSummary } from './panel.js';
+import cytoscape from 'cytoscape';
+import { baseStyles } from '../cytoscape/styles.js';
 
 // Shared dialog element
 let dialogEl = null;
@@ -250,4 +254,150 @@ export async function importGraphDialog(panel) {
   } else {
     showToast(mergeResult.error, 'error');
   }
+}
+
+/** Show changelog dialog - pending changes or approval history */
+export function changelogDialog(panel) {
+  // Mode A: Pending Changes (panel has baseGraph and is not clean)
+  if (panel.baseGraph && !panel.isClean()) {
+    const diffs = computeDiff(panel.baseGraph, panel.graph);
+
+    let diffListHtml = '<div class="changelog-list">';
+    for (const diff of diffs) {
+      const actionSymbol = diff.action === 'added' ? '+' : diff.action === 'removed' ? '-' : '~';
+      const actionClass = `diff-${diff.action}`;
+      const typeLabel = diff.type === 'node' ? 'Node' : 'Edge';
+      const itemLabel = diff.type === 'node' ? `"${diff.key}"` : `"${diff.key}"`;
+
+      let detailsHtml = '';
+      if (diff.action === 'modified' && diff.changes) {
+        const changes = diff.changes.map(c => `${c.key}: ${c.oldValue} → ${c.newValue}`).join(', ');
+        detailsHtml = `<div style="font-size: 10px; color: var(--text-muted); margin-left: 20px;">${changes}</div>`;
+      }
+
+      diffListHtml += `
+        <div class="changelog-entry ${actionClass}">
+          <span style="font-weight: bold;">${actionSymbol}</span>
+          <span>${typeLabel} ${itemLabel}</span>
+        </div>
+        ${detailsHtml}
+      `;
+    }
+    diffListHtml += '</div>';
+
+    const dlg = openDialog(`
+      <h3>Pending Changes</h3>
+      ${diffListHtml}
+      <div class="dialog-actions">
+        <button id="dlg-close" class="btn-primary">Close</button>
+      </div>
+    `, panel.panelEl);
+    dlg.querySelector('#dlg-close').onclick = closeDialog;
+    return;
+  }
+
+  // Mode B: Approval History
+  const history = panel._approvalHistory || [];
+
+  if (history.length === 0) {
+    const dlg = openDialog(`
+      <h3>Approval History</h3>
+      <p style="color: var(--text-muted); text-align: center; padding: 20px;">No history yet.</p>
+      <div class="dialog-actions">
+        <button id="dlg-close" class="btn-primary">Close</button>
+      </div>
+    `, panel.panelEl);
+    dlg.querySelector('#dlg-close').onclick = closeDialog;
+    return;
+  }
+
+  let historyListHtml = '<div class="changelog-list">';
+  // Show newest first
+  for (let i = history.length - 1; i >= 0; i--) {
+    const entry = history[i];
+    const timestamp = new Date(entry.timestamp);
+    const timeStr = timestamp.toLocaleTimeString();
+    const num = i + 1;
+
+    historyListHtml += `
+      <div class="changelog-entry" style="display: flex; align-items: center; justify-content: space-between; padding: 8px;">
+        <span style="font-family: 'Courier New', monospace; font-size: 11px;">
+          #${num} ${timeStr} <span style="color: var(--text-muted);">${entry.diffSummary}</span>
+        </span>
+        <button class="btn-preview" data-index="${i}" style="font-size: 11px; padding: 4px 8px;">Preview</button>
+      </div>
+    `;
+  }
+  historyListHtml += '</div>';
+
+  const dlg = openDialog(`
+    <h3>Approval History</h3>
+    ${historyListHtml}
+    <div class="dialog-actions">
+      <button id="dlg-close" class="btn-primary">Close</button>
+    </div>
+  `, panel.panelEl);
+
+  // Wire preview buttons
+  dlg.querySelectorAll('.btn-preview').forEach(btn => {
+    btn.onclick = () => {
+      const index = parseInt(btn.dataset.index);
+      const entry = history[index];
+      const timestamp = new Date(entry.timestamp);
+      const title = `Approval #${index + 1} — ${timestamp.toLocaleTimeString()}`;
+      closeDialog();
+      graphPreviewDialog(entry.graph, title, panel.panelEl);
+    };
+  });
+
+  dlg.querySelector('#dlg-close').onclick = closeDialog;
+}
+
+/** Show a readonly graph preview in a modal */
+export function graphPreviewDialog(graph, title, panelEl) {
+  const dlg = openDialog(`
+    <h3>${title}</h3>
+    <div class="preview-canvas" id="preview-canvas"></div>
+    <div class="dialog-actions">
+      <button id="dlg-close" class="btn-primary">Close</button>
+    </div>
+  `, panelEl);
+
+  // Set larger dialog size
+  dlg.style.minWidth = '400px';
+  dlg.style.minHeight = '350px';
+  dlg.style.maxWidth = '80vw';
+  dlg.style.maxHeight = '80vh';
+
+  const canvasEl = dlg.querySelector('#preview-canvas');
+
+  // Create temporary Cytoscape instance
+  const elements = [];
+  for (const node of graph.nodes) {
+    elements.push({
+      group: 'nodes',
+      data: { id: node.label, label: node.label },
+    });
+  }
+  for (const edge of graph.edges) {
+    elements.push({
+      group: 'edges',
+      data: { id: `${edge.source}→${edge.target}`, source: edge.source, target: edge.target },
+    });
+  }
+
+  const cy = cytoscape({
+    container: canvasEl,
+    elements,
+    style: baseStyles,
+    layout: { name: 'fcose', animate: false, fit: true, padding: 20 },
+    autoungrabify: true, // Readonly: nodes can't be dragged
+    userZoomingEnabled: true,
+    userPanningEnabled: true,
+  });
+
+  dlg.querySelector('#dlg-close').onclick = () => {
+    cy.destroy();
+    closeDialog();
+  };
 }

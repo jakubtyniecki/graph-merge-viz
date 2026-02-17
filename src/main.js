@@ -2,11 +2,12 @@ import cytoscape from 'cytoscape';
 import fcose from 'cytoscape-fcose';
 import { Panel } from './ui/panel.js';
 import { LayoutManager } from './ui/layout.js';
-import { addNodeDialog, addEdgeDialog, importGraphDialog, confirmDialog, infoDialog } from './ui/dialogs.js';
+import { addNodeDialog, addEdgeDialog, importGraphDialog, confirmDialog, infoDialog, changelogDialog } from './ui/dialogs.js';
 import { setupSession } from './ui/session.js';
 import { setupClipboard } from './ui/clipboard.js';
 import { setupContextMenu } from './ui/context-menu.js';
 import { showToast } from './ui/toast.js';
+import { setupStatusBar } from './ui/status-bar.js';
 
 cytoscape.use(fcose);
 
@@ -119,6 +120,7 @@ document.getElementById('app').addEventListener('click', async e => {
     }
     case 'undo': panel.undo(); break;
     case 'redo': panel.redo(); break;
+    case 'changelog': changelogDialog(panel); break;
     case 'refresh':
       panel.cy.resize();
       panel._runLayout();
@@ -146,6 +148,7 @@ layoutManager.init();
 // Setup session management and clipboard
 setupSession(panels, layoutManager);
 setupClipboard(() => panels);
+setupStatusBar();
 
 // Initial merge button state update
 requestAnimationFrame(() => layoutManager.updateMergeButtonStates(panels));
