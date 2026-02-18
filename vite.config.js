@@ -18,4 +18,19 @@ export default defineConfig({
     host: '0.0.0.0',
     allowedHosts: ['all', 'malina.tail5985a4.ts.net'],
   },
+  test: {
+    root: '.',
+    environment: 'node',
+    include: ['tests/unit/**/*.test.js'],
+    coverage: {
+      provider: 'v8',
+      include: ['src/graph/**'],
+      exclude: ['src/graph/serializer.js'],
+      thresholds: {
+        lines: 70,
+        functions: 70,
+        branches: 60,
+      },
+    },
+  },
 });
