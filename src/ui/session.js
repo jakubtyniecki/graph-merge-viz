@@ -1,7 +1,7 @@
 import { showToast } from './toast.js';
 import { updateStatusBar } from './status-bar.js';
 import { editTemplateDialog, newSessionDialog } from './dialogs.js';
-import { loadGlobalTemplates, uniqueName } from './template-ui.js';
+import { loadGlobalTemplates, uniqueName, templateManagementModal } from './template-ui.js';
 import { defaultTemplate } from '../graph/template.js';
 
 const STORAGE_KEY = 'graph-merge-sessions';
@@ -73,9 +73,28 @@ function migrateOldSession(session) {
 /** Migrate sessions missing template field */
 function migrateTemplate(session) {
   if (!session.template) {
-    return { ...session, template: { name: 'Default', graphType: 'DG', nodeTypes: [], edgeTypes: [] } };
+    return { ...session, template: { name: 'Default', graphType: 'DG', nodeTypes: [], edgeTypes: [], specialTypes: [] } };
+  }
+  // Ensure specialTypes exists on template
+  if (!session.template.specialTypes) {
+    session = { ...session, template: { ...session.template, specialTypes: [] } };
   }
   return session;
+}
+
+/** Migrate sessions missing path tracking fields on panel states */
+function migrateTrackingFields(session) {
+  if (!session.panels) return session;
+  const panels = {};
+  for (const [id, state] of Object.entries(session.panels)) {
+    panels[id] = {
+      pathTrackingEnabled: false,
+      showExclusions: true,
+      exclusions: {},
+      ...state,
+    };
+  }
+  return { ...session, panels };
 }
 
 export function getSessionTemplate() {
@@ -94,7 +113,6 @@ function saveCurrentSession() {
     layout: _layoutManager.getLayout(),
     panels: panelStates,
     template: _currentTemplate,
-    layoutAlgorithm: window.__layoutAlgorithm || 'fcose',
     savedAt: new Date().toISOString(),
   };
   saveSessions(sessions);
@@ -109,14 +127,17 @@ function restoreSession(name) {
   // Migrate formats
   session = migrateOldSession(session);
   session = migrateTemplate(session);
+  session = migrateTrackingFields(session);
   sessions[name] = session;
   saveSessions(sessions);
 
-  // Restore layout algorithm
-  if (session.layoutAlgorithm) {
-    window.__layoutAlgorithm = session.layoutAlgorithm;
-    const select = document.getElementById('layout-algo');
-    if (select) select.value = session.layoutAlgorithm;
+  // Migrate old sessions: apply global layoutAlgorithm to panels that lack one
+  if (session.layoutAlgorithm && session.panels) {
+    for (const panelState of Object.values(session.panels)) {
+      if (!panelState.layoutAlgorithm) {
+        panelState.layoutAlgorithm = session.layoutAlgorithm;
+      }
+    }
   }
 
   // Restore template
@@ -174,6 +195,8 @@ function renderSessionControls() {
         <button id="session-import">Import</button>
       </div>
     </div>
+    <button id="templates-btn" title="Manage templates">Templates</button>
+    <button id="add-panel-btn" title="Add panel" style="font-weight:bold;font-size:14px">+</button>
     <button class="help-btn" id="help-btn" title="Keyboard shortcuts">?</button>
   `;
 
@@ -203,6 +226,8 @@ function renderSessionControls() {
     const el = container.querySelector(id);
     if (el) el.onclick = () => { closeMenu(); fn(); };
   };
+
+  container.querySelector('#templates-btn').onclick = () => templateManagementModal();
 
   container.querySelector('#session-select').onchange = e => {
     saveCurrentSession();
@@ -266,11 +291,13 @@ function renderSessionControls() {
       if (_onTemplateChange) _onTemplateChange(_currentTemplate);
       debouncedSave();
       showToast('Template updated', 'success');
-    });
+    }, true); // isSessionTemplate = true — specialTypes locked
   });
 
   wrapAction('#session-export', exportSession);
   wrapAction('#session-import', importSession);
+
+  container.querySelector('#add-panel-btn').onclick = () => _layoutManager.addPanel();
 
   container.querySelector('#help-btn').onclick = () => {
     toggleHelp();
@@ -359,7 +386,7 @@ function importSession() {
         layout: data.layout,
         panels: data.panels,
         template: data.template || { name: 'Default', graphType: 'DG', nodeTypes: [], edgeTypes: [] },
-        layoutAlgorithm: data.layoutAlgorithm,
+        layoutAlgorithm: data.layoutAlgorithm, // kept for migration on next restore
         savedAt: data.savedAt || new Date().toISOString(),
       };
       saveSessions(sessions);

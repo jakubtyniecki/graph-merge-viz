@@ -1,4 +1,5 @@
-import { addNodeDialog, addEdgeDialog, editSelectedDialog, confirmDialog } from './dialogs.js';
+import { addNodeDialog, addEdgeDialog, editSelectedDialog, confirmDialog, exclusionDialog } from './dialogs.js';
+import { serializeTag as pathSerializeTag, formatPathTag as pathFormatTag } from '../graph/path-tracking.js';
 import {
   copyFromPanel,
   pasteToPanel,
@@ -46,11 +47,14 @@ function show(x, y, items) {
 
     const btn = document.createElement('button');
     btn.className = 'context-menu-item';
+    if (item.disabled) btn.className += ' context-menu-item-disabled';
     btn.textContent = item.label;
-    btn.onclick = () => {
-      hide();
-      item.action();
-    };
+    if (!item.disabled) {
+      btn.onclick = () => {
+        hide();
+        item.action();
+      };
+    }
     menu.appendChild(btn);
   }
 
@@ -176,6 +180,25 @@ function buildNodeMenu(panel, node) {
     },
   ];
 
+  // Path tracking: "Include All Paths" for fully excluded nodes
+  if (panel.pathTrackingEnabled && node.hasClass('node-fully-excluded')) {
+    items.push({ separator: true });
+    items.push({
+      label: 'Include All Paths',
+      action: () => {
+        // Remove exclusions from all outgoing edges of this node
+        const outgoing = panel.graph.edges.filter(e => e.source === label);
+        for (const edge of outgoing) {
+          const key = `${edge.source}→${edge.target}`;
+          if (panel.exclusions[key]) {
+            const tags = [...(panel.exclusions[key] || [])];
+            for (const tag of tags) panel.includePathTag(key, tag);
+          }
+        }
+      },
+    });
+  }
+
   // Branch copy/paste section
   items.push({ separator: true });
   items.push({
@@ -214,8 +237,9 @@ function buildNodeMenu(panel, node) {
 function buildEdgeMenu(panel, edge) {
   const src = edge.data('source');
   const tgt = edge.data('target');
+  const edgeKey = `${src}→${tgt}`;
 
-  return [
+  const items = [
     {
       label: `Edit Edge "${src} -> ${tgt}"`,
       action: () => {
@@ -233,6 +257,55 @@ function buildEdgeMenu(panel, edge) {
       },
     },
   ];
+
+  // Path tracking exclusion toggles
+  if (panel.pathTrackingEnabled && panel._pathTags) {
+    const specialTypes = panel.template?.specialTypes || [];
+    const tags = panel._pathTags.get(edgeKey) || [];
+    const effectiveExcluded = panel._effectiveExclusions?.get(edgeKey) || new Set();
+    const directExcluded = new Set(panel.exclusions[edgeKey] || []);
+
+    if (tags.length > 0) {
+      items.push({ separator: true });
+
+      const serTag = (tag) => pathSerializeTag(tag, specialTypes);
+      const fmtTag = (tag) => pathFormatTag(tag, specialTypes, panel.template?.nodeTypes || []);
+
+      // Show up to 3 individual tag toggles; if more, show dialog
+      if (tags.length <= 3) {
+        for (const tag of tags) {
+          const serialized = serTag(tag);
+          const isDirect = directExcluded.has(serialized);
+          const isPropagated = effectiveExcluded.has(serialized) && !isDirect;
+          const label = fmtTag(tag);
+          if (isDirect) {
+            items.push({
+              label: `Include ${label}`,
+              action: () => panel.includePathTag(edgeKey, serialized),
+            });
+          } else if (isPropagated) {
+            items.push({
+              label: `Excluded ${label} ↑ (from source edge)`,
+              disabled: true,
+              action: () => {},
+            });
+          } else {
+            items.push({
+              label: `Exclude ${label}`,
+              action: () => panel.excludePathTag(edgeKey, serialized),
+            });
+          }
+        }
+      } else {
+        items.push({
+          label: 'Manage Exclusions...',
+          action: () => exclusionDialog(panel, edgeKey),
+        });
+      }
+    }
+  }
+
+  return items;
 }
 
 /** Wire context menu onto a Panel instance */

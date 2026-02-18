@@ -6,6 +6,32 @@ import cytoscape from 'cytoscape';
 import { baseStyles } from '../cytoscape/styles.js';
 import { GRAPH_TYPES, defaultTemplate } from '../graph/template.js';
 import { deepClone } from '../graph/model.js';
+import { serializeTag as pathSerializeTag, formatPathTag as pathFormatTag } from '../graph/path-tracking.js';
+
+// Remember last-used types across dialogs
+let _lastNodeType = null;
+let _lastEdgeType = null;
+
+/** Parse batch node label input: "A, B, C" or "P1-5" or mixed */
+function expandNodeLabels(input) {
+  const labels = [];
+  for (const part of input.split(',')) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const rangeMatch = trimmed.match(/^(.+?)(\d+)-(\d+)$/);
+    if (rangeMatch) {
+      const [, prefix, startStr, endStr] = rangeMatch;
+      const start = parseInt(startStr, 10);
+      const end = parseInt(endStr, 10);
+      if (start <= end && end - start < 100) {
+        for (let i = start; i <= end; i++) labels.push(`${prefix}${i}`);
+        continue;
+      }
+    }
+    labels.push(trimmed);
+  }
+  return labels;
+}
 
 // Shared dialog element
 let dialogEl = null;
@@ -20,7 +46,7 @@ function getDialog() {
 
 let overlayEl = null;
 
-function openDialog(html, panelEl = null) {
+export function openDialog(html, panelEl = null) {
   const dlg = getDialog();
   dlg.innerHTML = html;
 
@@ -52,20 +78,19 @@ function openDialog(html, panelEl = null) {
       dlg.style.top = `${Math.max(dlgH / 2 + margin, Math.min(rawTop, window.innerHeight - dlgH / 2 - margin))}px`;
     });
   } else {
-    // Full-page modal with native backdrop
-    dlg.showModal();
-    // Reset to default centering
+    // Full-page modal with native backdrop — clear any leftover panel-scoped styles first
     dlg.style.position = '';
     dlg.style.left = '';
     dlg.style.top = '';
     dlg.style.transform = '';
     dlg.style.margin = '';
+    dlg.showModal();
   }
 
   return dlg;
 }
 
-function closeDialog() {
+export function closeDialog() {
   getDialog().close();
   // Remove custom overlay if it exists
   if (overlayEl) {
@@ -150,17 +175,17 @@ function textToProps(text) {
 export function addNodeDialog(panel) {
   const template = panel.template;
   const hasTypes = template?.nodeTypes?.length > 0;
+  const validLastType = hasTypes && template.nodeTypes.some(nt => nt.id === _lastNodeType) ? _lastNodeType : null;
   const typeSelect = hasTypes
     ? `<label>Type</label>
     <select id="dlg-type">
-      <option value="">(no type)</option>
-      ${template.nodeTypes.map(nt => `<option value="${nt.id}">${nt.label}</option>`).join('')}
+      ${template.nodeTypes.map(nt => `<option value="${nt.id}" ${(validLastType || template.nodeTypes[0]?.id) === nt.id ? 'selected' : ''}>${nt.label}</option>`).join('')}
     </select>`
     : '';
   const dlg = openDialog(`
     <h3>Add Node</h3>
     <label>Label</label>
-    <input id="dlg-label" type="text" placeholder="Node label" autofocus>
+    <input id="dlg-label" type="text" placeholder="Node label (or A,B,C or P1-5)" autofocus>
     ${typeSelect}
     <label>Properties (key=value per line)</label>
     <textarea id="dlg-props" placeholder="color=blue&#10;weight=5"></textarea>
@@ -171,11 +196,14 @@ export function addNodeDialog(panel) {
   `, panel.panelEl);
   dlg.querySelector('#dlg-cancel').onclick = closeDialog;
   dlg.querySelector('#dlg-ok').onclick = () => {
-    const label = dlg.querySelector('#dlg-label').value.trim();
-    if (!label) { showToast('Label required', 'error'); return; }
+    const raw = dlg.querySelector('#dlg-label').value;
+    const nodeLabels = expandNodeLabels(raw);
+    if (nodeLabels.length === 0) { showToast('Label required', 'error'); return; }
     const props = textToProps(dlg.querySelector('#dlg-props').value);
     const type = hasTypes ? (dlg.querySelector('#dlg-type').value || null) : null;
-    panel.addNode(label, props, type);
+    if (hasTypes) _lastNodeType = type;
+    for (const label of nodeLabels) panel.addNode(label, props, type);
+    if (nodeLabels.length > 1) showToast(`Added ${nodeLabels.length} nodes`, 'success');
     closeDialog();
   };
   dlg.querySelector('#dlg-label').onkeydown = e => {
@@ -195,20 +223,21 @@ export function addEdgeDialog(panel) {
   const sourceLabel = isUndirected ? 'Node A' : 'Source';
   const targetLabel = isUndirected ? 'Node B' : 'Target';
   const hasTypes = template?.edgeTypes?.length > 0;
+  const validLastEdgeType = hasTypes && template.edgeTypes.some(et => et.id === _lastEdgeType) ? _lastEdgeType : null;
   const typeSelect = hasTypes
     ? `<label>Type</label>
     <select id="dlg-type">
-      <option value="">(no type)</option>
-      ${template.edgeTypes.map(et => `<option value="${et.id}">${et.label}</option>`).join('')}
+      ${template.edgeTypes.map(et => `<option value="${et.id}" ${(validLastEdgeType || template.edgeTypes[0]?.id) === et.id ? 'selected' : ''}>${et.label}</option>`).join('')}
     </select>`
     : '';
-  const options = labels.map(l => `<option value="${l}">${l}</option>`).join('');
+  const datalistOptions = labels.map(l => `<option value="${l}">`).join('');
   const dlg = openDialog(`
     <h3>Add Edge</h3>
+    <datalist id="dlg-node-list">${datalistOptions}</datalist>
     <label>${sourceLabel}</label>
-    <select id="dlg-source">${options}</select>
+    <input id="dlg-source" list="dlg-node-list" placeholder="Start typing..." autocomplete="off">
     <label>${targetLabel}</label>
-    <select id="dlg-target">${options}</select>
+    <input id="dlg-target" list="dlg-node-list" placeholder="Start typing..." autocomplete="off">
     ${typeSelect}
     <label>Properties (key=value per line)</label>
     <textarea id="dlg-props" placeholder="weight=1"></textarea>
@@ -217,14 +246,18 @@ export function addEdgeDialog(panel) {
       <button id="dlg-ok" class="btn-primary">Add</button>
     </div>
   `, panel.panelEl);
+  dlg.querySelector('#dlg-source').value = labels[0];
   if (labels.length > 1) dlg.querySelector('#dlg-target').value = labels[1];
   dlg.querySelector('#dlg-cancel').onclick = closeDialog;
   dlg.querySelector('#dlg-ok').onclick = () => {
-    const source = dlg.querySelector('#dlg-source').value;
-    const target = dlg.querySelector('#dlg-target').value;
+    const source = dlg.querySelector('#dlg-source').value.trim();
+    const target = dlg.querySelector('#dlg-target').value.trim();
+    if (!labels.includes(source)) { showToast(`Node "${source}" not found`, 'error'); return; }
+    if (!labels.includes(target)) { showToast(`Node "${target}" not found`, 'error'); return; }
     if (source === target) { showToast('Source and target must differ', 'error'); return; }
     const props = textToProps(dlg.querySelector('#dlg-props').value);
     const type = hasTypes ? (dlg.querySelector('#dlg-type').value || null) : null;
+    if (hasTypes) _lastEdgeType = type;
     panel.addEdge(source, target, props, type);
     closeDialog();
   };
@@ -248,7 +281,6 @@ export function editSelectedDialog(panel) {
     const typeSelect = hasTypes
       ? `<label>Type</label>
       <select id="dlg-type">
-        <option value="">(no type)</option>
         ${template.nodeTypes.map(nt => `<option value="${nt.id}" ${node.type === nt.id ? 'selected' : ''}>${nt.label}</option>`).join('')}
       </select>`
       : '';
@@ -279,7 +311,6 @@ export function editSelectedDialog(panel) {
     const typeSelect = hasTypes
       ? `<label>Type</label>
       <select id="dlg-type">
-        <option value="">(no type)</option>
         ${template.edgeTypes.map(et => `<option value="${et.id}" ${edge.type === et.id ? 'selected' : ''}>${et.label}</option>`).join('')}
       </select>`
       : '';
@@ -593,18 +624,51 @@ function genId() {
   return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 }
 
-/** Edit the session template (node types + edge types). Calls onSave(newTemplate) on confirm. */
-export function editTemplateDialog(template, onSave) {
+/** Edit the session template (node types + edge types + specialTypes). Calls onSave(newTemplate) on confirm. */
+export function editTemplateDialog(template, onSave, isSessionTemplate = false) {
   // Work on a local clone so Cancel does nothing
   let local = deepClone(template);
+  if (!local.specialTypes) local.specialTypes = [];
 
-  const renderRows = (types, kind) => types.map(t => `
+  const isDAG = local.graphType === 'DAG';
+
+  const renderRows = (types, kind) => types.map(t => {
+    const placeholder = kind === 'node' ? 'Node Type' : 'Edge Type';
+    const deleteBtn = isSessionTemplate ? '' : `<button class="btn-delete-type" data-id="${t.id}" data-kind="${kind}" title="Delete">✕</button>`;
+    return `
     <div class="type-row" data-id="${t.id}" data-kind="${kind}">
-      <input type="text" class="type-label-input" value="${t.label}" placeholder="Type label">
+      <input type="text" class="type-label-input" value="${t.label}" placeholder="${placeholder}">
       <input type="color" class="type-color-input" value="${t.color || '#4fc3f7'}">
-      <button class="btn-delete-type" data-id="${t.id}" data-kind="${kind}" title="Delete">✕</button>
+      ${deleteBtn}
     </div>
-  `).join('');
+  `;
+  }).join('');
+
+  const renderSpecialTypes = () => {
+    if (!isDAG || local.nodeTypes.length === 0) return '';
+    const locked = isSessionTemplate;
+    const lockedNote = locked ? '<em style="font-size:10px;color:var(--text-muted)">Cannot change for active session</em>' : '';
+    const items = local.nodeTypes.map((nt, idx) => {
+      const isSelected = local.specialTypes.includes(nt.id);
+      const upDisabled = (idx === 0 || !isSelected || locked) ? 'disabled' : '';
+      const downDisabled = (idx === local.nodeTypes.length - 1 || !isSelected || locked) ? 'disabled' : '';
+      return `
+        <div class="special-type-item">
+          <input type="checkbox" class="special-type-cb" data-id="${nt.id}" ${isSelected ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+          <span style="flex:1">${nt.label}</span>
+          <button class="st-up" data-id="${nt.id}" ${upDisabled} title="Move up in order">↑</button>
+          <button class="st-down" data-id="${nt.id}" ${downDisabled} title="Move down in order">↓</button>
+        </div>
+      `;
+    }).join('');
+    return `
+      <div class="special-types-section">
+        <div class="template-section-label">Path Tracking Types ${lockedNote}</div>
+        <p style="font-size:10px;color:var(--text-muted);margin-bottom:4px">Select node types used as anchors for path tracking (order matters).</p>
+        <div id="special-types-list">${items}</div>
+      </div>
+    `;
+  };
 
   const buildHtml = () => `
     <div class="dialog-header">
@@ -616,17 +680,26 @@ export function editTemplateDialog(template, onSave) {
     </div>
     <div class="template-section-label">Node Types</div>
     <div id="node-types-list">${renderRows(local.nodeTypes, 'node')}</div>
-    <button id="add-node-type" class="btn-secondary btn-add-type">+ Add Node Type</button>
+    ${isSessionTemplate ? '' : '<button id="add-node-type" class="btn-secondary btn-add-type">+ Add Node Type</button>'}
     <div class="template-section-label">Edge Types</div>
     <div id="edge-types-list">${renderRows(local.edgeTypes, 'edge')}</div>
-    <button id="add-edge-type" class="btn-secondary btn-add-type">+ Add Edge Type</button>
+    ${isSessionTemplate ? '' : '<button id="add-edge-type" class="btn-secondary btn-add-type">+ Add Edge Type</button>'}
+    ${renderSpecialTypes()}
     <div class="dialog-actions">
       <button id="dlg-cancel">Cancel</button>
       <button id="dlg-ok" class="btn-primary">Save</button>
     </div>
   `;
 
+  const wireFocusSelect = () => {
+    dlg.querySelectorAll('.type-label-input').forEach(input => {
+      input.addEventListener('focus', () => input.select());
+    });
+  };
+
   const dlg = openDialog(buildHtml());
+  dlg.classList.add('dialog-wide');
+  wireFocusSelect();
 
   const rerender = () => {
     // Collect current input values before re-render
@@ -643,9 +716,20 @@ export function editTemplateDialog(template, onSave) {
         if (t) { t.label = label; t.color = color; }
       }
     });
+    // Collect special type selections before re-render
+    if (isDAG && !isSessionTemplate) {
+      local.specialTypes = [];
+      dlg.querySelectorAll('.special-type-cb:checked').forEach(cb => {
+        local.specialTypes.push(cb.dataset.id);
+      });
+    }
     dlg.querySelector('#node-types-list').innerHTML = renderRows(local.nodeTypes, 'node');
     dlg.querySelector('#edge-types-list').innerHTML = renderRows(local.edgeTypes, 'edge');
+    const stSection = dlg.querySelector('.special-types-section');
+    if (stSection) stSection.outerHTML = renderSpecialTypes();
     wireDeleteBtns();
+    wireSpecialTypeBtns();
+    wireFocusSelect();
   };
 
   const wireDeleteBtns = () => {
@@ -653,26 +737,68 @@ export function editTemplateDialog(template, onSave) {
       btn.onclick = () => {
         const id = btn.dataset.id;
         const kind = btn.dataset.kind;
-        if (kind === 'node') local.nodeTypes = local.nodeTypes.filter(t => t.id !== id);
-        else local.edgeTypes = local.edgeTypes.filter(t => t.id !== id);
+        if (kind === 'node') {
+          local.nodeTypes = local.nodeTypes.filter(t => t.id !== id);
+          local.specialTypes = local.specialTypes.filter(stId => stId !== id);
+        } else {
+          local.edgeTypes = local.edgeTypes.filter(t => t.id !== id);
+        }
+        rerender();
+      };
+    });
+  };
+
+  const wireSpecialTypeBtns = () => {
+    if (!isDAG || isSessionTemplate) return;
+    dlg.querySelectorAll('.st-up').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.id;
+        const idx = local.specialTypes.indexOf(id);
+        if (idx > 0) {
+          [local.specialTypes[idx - 1], local.specialTypes[idx]] = [local.specialTypes[idx], local.specialTypes[idx - 1]];
+          rerender();
+        }
+      };
+    });
+    dlg.querySelectorAll('.st-down').forEach(btn => {
+      btn.onclick = () => {
+        const id = btn.dataset.id;
+        const idx = local.specialTypes.indexOf(id);
+        if (idx !== -1 && idx < local.specialTypes.length - 1) {
+          [local.specialTypes[idx], local.specialTypes[idx + 1]] = [local.specialTypes[idx + 1], local.specialTypes[idx]];
+          rerender();
+        }
+      };
+    });
+    dlg.querySelectorAll('.special-type-cb').forEach(cb => {
+      cb.onchange = () => {
+        const id = cb.dataset.id;
+        if (cb.checked) {
+          if (!local.specialTypes.includes(id)) local.specialTypes.push(id);
+        } else {
+          local.specialTypes = local.specialTypes.filter(stId => stId !== id);
+        }
         rerender();
       };
     });
   };
 
   wireDeleteBtns();
+  wireSpecialTypeBtns();
 
-  dlg.querySelector('#add-node-type').onclick = () => {
-    rerender();
-    local.nodeTypes.push({ id: genId(), label: 'New Type', color: '#4fc3f7' });
-    rerender();
-  };
+  if (!isSessionTemplate) {
+    dlg.querySelector('#add-node-type').onclick = () => {
+      rerender();
+      local.nodeTypes.push({ id: genId(), label: 'New Type', color: '#4fc3f7' });
+      rerender();
+    };
 
-  dlg.querySelector('#add-edge-type').onclick = () => {
-    rerender();
-    local.edgeTypes.push({ id: genId(), label: 'New Type', color: '#5a6a8c' });
-    rerender();
-  };
+    dlg.querySelector('#add-edge-type').onclick = () => {
+      rerender();
+      local.edgeTypes.push({ id: genId(), label: 'New Type', color: '#5a6a8c' });
+      rerender();
+    };
+  }
 
   const collectAndSave = () => {
     dlg.querySelectorAll('.type-row').forEach(row => {
@@ -688,12 +814,138 @@ export function editTemplateDialog(template, onSave) {
         if (t) { t.label = label; t.color = color; }
       }
     });
-    closeDialog();
+    // Collect special type selections
+    if (isDAG && !isSessionTemplate) {
+      local.specialTypes = [];
+      dlg.querySelectorAll('.special-type-cb:checked').forEach(cb => {
+        local.specialTypes.push(cb.dataset.id);
+      });
+    }
     onSave(local);
+    showToast('Template saved', 'success');
   };
 
   dlg.querySelector('#dlg-ok').onclick = collectAndSave;
   dlg.querySelector('#dlg-cancel').onclick = closeDialog;
+  dlg.querySelector('#dlg-close-x').onclick = closeDialog;
+}
+
+/** Show exclusion management dialog for a specific edge */
+export function exclusionDialog(panel, edgeKey) {
+  const panelEl = panel.panelEl;
+  if (!panel.pathTrackingEnabled || !panel._pathTags) return;
+
+  const template = panel.template;
+  const specialTypes = template?.specialTypes || [];
+  const tags = panel._pathTags.get(edgeKey) || [];
+  const effectiveExcluded = panel._effectiveExclusions?.get(edgeKey) || new Set();
+  const directExcluded = new Set(panel.exclusions[edgeKey] || []);
+
+  if (tags.length === 0) {
+    showToast('No path tags on this edge', 'info');
+    return;
+  }
+
+  const _serializeTag = (tag) => pathSerializeTag(tag, specialTypes);
+  const _formatPathTag = (tag) => pathFormatTag(tag, specialTypes, template?.nodeTypes || []);
+
+  const rows = tags.map(tag => {
+    const serialized = _serializeTag(tag);
+    const isDirectExcluded = directExcluded.has(serialized);
+    const isPropagated = effectiveExcluded.has(serialized) && !isDirectExcluded;
+    const isExcluded = isDirectExcluded || isPropagated;
+    const label = _formatPathTag(tag);
+    const propagatedNote = isPropagated ? ' <em style="font-size:10px;color:var(--text-muted)">(inherited)</em>' : '';
+    return `
+      <div class="exclusion-item ${isPropagated ? 'propagated' : ''}">
+        <input type="checkbox" class="excl-cb" data-tag="${serialized}" data-propagated="${isPropagated}" ${isExcluded ? '' : 'checked'} title="${isPropagated ? 'Propagated from downstream — uncheck to add direct exclusion' : ''}">
+        <span>${label}${propagatedNote}</span>
+      </div>
+    `;
+  }).join('');
+
+  const [src, tgt] = edgeKey.split('→');
+  const dlg = openDialog(`
+    <div class="dialog-header">
+      <h3>Exclusions: ${src} → ${tgt}</h3>
+      <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
+    </div>
+    <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Checked = included in tracking. Uncheck to exclude a path.</p>
+    <div class="exclusion-list">${rows}</div>
+    <div class="dialog-actions">
+      <button id="dlg-cancel">Cancel</button>
+      <button id="dlg-ok" class="btn-primary">Apply</button>
+    </div>
+  `, panelEl);
+
+  dlg.querySelector('#dlg-ok').onclick = () => {
+    const checkboxes = dlg.querySelectorAll('.excl-cb');
+    checkboxes.forEach(cb => {
+      const serialized = cb.dataset.tag;
+      const included = cb.checked;
+      const wasDirectExcluded = directExcluded.has(serialized);
+      if (!included && !wasDirectExcluded) {
+        panel.excludePathTag(edgeKey, serialized);
+      } else if (included && wasDirectExcluded) {
+        panel.includePathTag(edgeKey, serialized);
+      }
+    });
+    closeDialog();
+  };
+  dlg.querySelector('#dlg-cancel').onclick = closeDialog;
+  dlg.querySelector('#dlg-close-x').onclick = closeDialog;
+}
+
+/** Show panel options dialog (layout algorithm + path tracking) */
+export function panelOptionsDialog(panel) {
+  const panelEl = panel.panelEl;
+  const algos = [
+    { value: 'fcose', label: 'Force-Directed (fcose)' },
+    { value: 'circle', label: 'Circle' },
+    { value: 'concentric', label: 'Concentric' },
+    { value: 'breadthfirst', label: 'Breadth-First' },
+    { value: 'grid', label: 'Grid' },
+  ];
+  const options = algos.map(a =>
+    `<option value="${a.value}" ${panel.layoutAlgorithm === a.value ? 'selected' : ''}>${a.label}</option>`
+  ).join('');
+
+  const template = panel.template;
+  const isDAG = template?.graphType === 'DAG';
+  const hasSpecialTypes = isDAG && (template?.specialTypes?.length > 0);
+  const trackingHtml = isDAG ? `
+    <div class="template-section-label" style="margin-top:12px">Path Tracking</div>
+    ${!hasSpecialTypes ? '<p style="font-size:11px;color:var(--text-muted)">No special types configured in template. Edit the template to add special types for DAG path tracking.</p>' : `
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="dlg-tracking" ${panel.pathTrackingEnabled ? 'checked' : ''}>
+      Enable path tracking
+    </label>
+    `}
+  ` : '';
+
+  const dlg = openDialog(`
+    <div class="dialog-header">
+      <h3>Panel Options</h3>
+      <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
+    </div>
+    <label>Layout Algorithm</label>
+    <select id="dlg-layout-algo">${options}</select>
+    ${trackingHtml}
+    <div class="dialog-actions">
+      <button id="dlg-ok" class="btn-primary">Apply</button>
+    </div>
+  `, panelEl);
+
+  dlg.querySelector('#dlg-ok').onclick = () => {
+    const algo = dlg.querySelector('#dlg-layout-algo').value;
+    panel.setLayoutAlgorithm(algo);
+    if (hasSpecialTypes) {
+      const enabled = dlg.querySelector('#dlg-tracking')?.checked || false;
+      if (enabled !== panel.pathTrackingEnabled) panel.setPathTracking(enabled);
+    }
+    showToast('Options applied', 'success');
+    closeDialog();
+  };
   dlg.querySelector('#dlg-close-x').onclick = closeDialog;
 }
 

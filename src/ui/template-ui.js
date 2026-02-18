@@ -1,5 +1,6 @@
 import { defaultTemplate, createTemplate, GRAPH_TYPES } from '../graph/template.js';
 import { showToast } from './toast.js';
+import { openDialog, closeDialog, editTemplateDialog } from './dialogs.js';
 
 const TEMPLATES_KEY = 'graph-merge-templates';
 
@@ -29,175 +30,194 @@ export function uniqueName(baseName, existingNames) {
   return `${baseName} (${i})`;
 }
 
-let _onTemplateSelect = null;
+/** Setup template UI — no-op, Templates button is now in session controls */
+export function setupTemplateUI() {}
 
-/** Render global template controls into #template-controls */
-export function setupTemplateUI(onTemplateSelect) {
-  _onTemplateSelect = onTemplateSelect;
-  renderTemplateControls();
+function templateMeta(template) {
+  const graphLabel = GRAPH_TYPES[template.graphType]?.label || template.graphType;
+  const nodeCount = template.nodeTypes?.length || 0;
+  const edgeCount = template.edgeTypes?.length || 0;
+  return `${graphLabel} · ${nodeCount} node type${nodeCount !== 1 ? 's' : ''} · ${edgeCount} edge type${edgeCount !== 1 ? 's' : ''}`;
 }
 
-function renderTemplateControls() {
-  const container = document.getElementById('template-controls');
-  if (!container) return;
+export function templateManagementModal() {
+  let selectedName = null;
 
-  const templates = loadGlobalTemplates();
-  const names = Object.keys(templates);
+  const renderList = (templates) => {
+    const names = Object.keys(templates);
+    if (names.length === 0) return '<p style="color:var(--text-muted);padding:12px;text-align:center">No templates</p>';
+    return names.map(name => {
+      const t = templates[name];
+      const isSelected = name === selectedName;
+      return `
+        <div class="template-list-item ${isSelected ? 'selected' : ''}" data-name="${name}">
+          <span class="tpl-name">${name}</span>
+          <span class="tpl-meta">${templateMeta(t)}</span>
+        </div>
+      `;
+    }).join('');
+  };
 
-  const options = names.map(n => `<option value="${n}">${n}</option>`).join('');
-
-  container.innerHTML = `
-    <select id="template-select">${options}</select>
-    <div class="session-menu-wrapper">
-      <button id="template-menu-toggle" class="btn-icon" title="Template actions">&#x2630;</button>
-      <div id="template-menu" class="session-dropdown" hidden>
-        <button id="template-new">New</button>
-        <button id="template-rename">Rename</button>
-        <button id="template-delete">Delete</button>
-        <button id="template-export">Export</button>
-        <button id="template-import">Import</button>
-      </div>
+  const buildHtml = (templates) => `
+    <div class="dialog-header">
+      <h3>Templates</h3>
+      <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
+    </div>
+    <div class="template-list" id="tpl-list">
+      ${renderList(templates)}
+    </div>
+    <div class="template-modal-footer">
+      <button id="tpl-add">Add</button>
+      <button id="tpl-remove">Remove</button>
+      <button id="tpl-edit">Edit</button>
+      <button id="tpl-copy">Copy</button>
+      <button id="tpl-import">Import</button>
+      <button id="tpl-export">Export</button>
     </div>
   `;
 
-  const menu = container.querySelector('#template-menu');
-  const menuToggle = container.querySelector('#template-menu-toggle');
-  const closeMenu = () => menu.hidden = true;
+  const templates = loadGlobalTemplates();
+  const dlg = openDialog(buildHtml(templates));
+  dlg.classList.add('dialog-wide');
 
-  menuToggle.onclick = e => {
-    e.stopPropagation();
-    menu.hidden = !menu.hidden;
+  const rerender = () => {
+    const current = loadGlobalTemplates();
+    dlg.querySelector('#tpl-list').innerHTML = renderList(current);
+    wireListClicks();
   };
 
-  const onDocClick = e => {
-    if (!container.contains(e.target)) closeMenu();
-  };
-  document.addEventListener('click', onDocClick);
-  const observer = new MutationObserver(() => {
-    if (!document.contains(menuToggle)) {
-      document.removeEventListener('click', onDocClick);
-      observer.disconnect();
-    }
-  });
-  observer.observe(document.body, { childList: true, subtree: true });
-
-  const wrapAction = (id, fn) => {
-    container.querySelector(id).onclick = () => { closeMenu(); fn(); };
+  const wireListClicks = () => {
+    dlg.querySelectorAll('.template-list-item').forEach(item => {
+      item.onclick = () => {
+        selectedName = item.dataset.name;
+        rerender();
+      };
+    });
   };
 
-  container.querySelector('#template-select').onchange = e => {
-    const name = e.target.value;
-    const t = loadGlobalTemplates()[name];
-    if (t && _onTemplateSelect) _onTemplateSelect(JSON.parse(JSON.stringify(t)));
-  };
+  wireListClicks();
 
-  wrapAction('#template-new', createNewTemplate);
-  wrapAction('#template-rename', renameTemplate);
-  wrapAction('#template-delete', deleteTemplate);
-  wrapAction('#template-export', exportTemplate);
-  wrapAction('#template-import', importTemplate);
-}
+  dlg.querySelector('#dlg-close-x').onclick = closeDialog;
 
-function createNewTemplate() {
-  const name = prompt('Template name:');
-  if (!name?.trim()) return;
+  dlg.querySelector('#tpl-add').onclick = () => {
+    const graphTypeOptions = Object.entries(GRAPH_TYPES)
+      .map(([k, v]) => `<option value="${k}">${v.label}</option>`)
+      .join('');
 
-  const typeKeys = Object.keys(GRAPH_TYPES);
-  const typeChoice = prompt(
-    `Graph type:\n${typeKeys.map((k, i) => `${i + 1}. ${k} — ${GRAPH_TYPES[k].label}`).join('\n')}\nEnter number:`,
-    '1'
-  );
-  const idx = parseInt(typeChoice) - 1;
-  const graphType = typeKeys[idx] || 'UCG';
+    // Replace list with inline add form
+    dlg.querySelector('#tpl-list').innerHTML = `
+      <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
+        <label>Template Name</label>
+        <input id="tpl-new-name" type="text" placeholder="Template name" autofocus>
+        <label>Graph Type</label>
+        <select id="tpl-graph-type">${graphTypeOptions}</select>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button id="tpl-create-confirm" class="btn-primary">Create</button>
+          <button id="tpl-create-cancel">Cancel</button>
+        </div>
+      </div>
+    `;
+    dlg.querySelector('#tpl-new-name').focus();
 
-  const templates = loadGlobalTemplates();
-  const finalName = uniqueName(name.trim(), Object.keys(templates));
-  templates[finalName] = createTemplate(finalName, graphType);
-  saveGlobalTemplates(templates);
-  renderTemplateControls();
-  showToast(`Created template "${finalName}"`, 'success');
-}
-
-function renameTemplate() {
-  const select = document.getElementById('template-select');
-  const currentName = select?.value;
-  if (currentName === 'Default') {
-    showToast('Cannot rename the Default template', 'info');
-    return;
-  }
-  const newName = prompt('New template name:', currentName);
-  if (!newName?.trim() || newName.trim() === currentName) return;
-  const templates = loadGlobalTemplates();
-  templates[newName.trim()] = { ...templates[currentName], name: newName.trim() };
-  delete templates[currentName];
-  saveGlobalTemplates(templates);
-  renderTemplateControls();
-  showToast(`Renamed to "${newName.trim()}"`, 'success');
-}
-
-function deleteTemplate() {
-  const select = document.getElementById('template-select');
-  const name = select?.value;
-  if (name === 'Default') {
-    showToast('Cannot delete the Default template', 'info');
-    return;
-  }
-  if (!confirm(`Delete template "${name}"?`)) return;
-  const templates = loadGlobalTemplates();
-  delete templates[name];
-  saveGlobalTemplates(templates);
-  renderTemplateControls();
-  showToast(`Deleted template "${name}"`, 'info');
-}
-
-function exportTemplate() {
-  const select = document.getElementById('template-select');
-  const name = select?.value;
-  const templates = loadGlobalTemplates();
-  const template = templates[name];
-  if (!template) return;
-  const data = JSON.stringify({ version: 1, template }, null, 2);
-  const blob = new Blob([data], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `template-${name.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-  showToast(`Exported template "${name}"`, 'success');
-}
-
-function importTemplate() {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = '.json';
-  input.onchange = () => {
-    const file = input.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = e => {
-      let data;
-      try { data = JSON.parse(e.target.result); } catch {
-        showToast('Invalid JSON file', 'error');
-        return;
-      }
-      if (!data.template || !data.template.name) {
-        showToast('Invalid template file', 'error');
-        return;
-      }
-      const templates = loadGlobalTemplates();
-      const importedName = uniqueName(data.template.name, Object.keys(templates));
-      templates[importedName] = { ...data.template, name: importedName };
-      saveGlobalTemplates(templates);
-      renderTemplateControls();
-      showToast(`Imported template "${importedName}"`, 'success');
+    dlg.querySelector('#tpl-create-cancel').onclick = rerender;
+    dlg.querySelector('#tpl-create-confirm').onclick = () => {
+      const name = dlg.querySelector('#tpl-new-name').value.trim();
+      if (!name) { showToast('Template name required', 'error'); return; }
+      const graphType = dlg.querySelector('#tpl-graph-type').value;
+      const allTemplates = loadGlobalTemplates();
+      const finalName = uniqueName(name, Object.keys(allTemplates));
+      allTemplates[finalName] = createTemplate(finalName, graphType);
+      saveGlobalTemplates(allTemplates);
+      selectedName = finalName;
+      showToast(`Created template "${finalName}"`, 'success');
+      rerender();
     };
-    reader.readAsText(file);
   };
-  input.click();
-}
 
-/** Get the currently selected global template name */
-export function getSelectedTemplateName() {
-  return document.getElementById('template-select')?.value || 'Default';
+  dlg.querySelector('#tpl-remove').onclick = () => {
+    if (!selectedName) { showToast('Select a template first', 'info'); return; }
+    if (selectedName === 'Default') { showToast('Cannot remove the Default template', 'info'); return; }
+    const allTemplates = loadGlobalTemplates();
+    const nameToRemove = selectedName;
+    if (!confirm(`Delete template "${nameToRemove}"?`)) return;
+    delete allTemplates[nameToRemove];
+    saveGlobalTemplates(allTemplates);
+    selectedName = null;
+    showToast(`Deleted template "${nameToRemove}"`, 'info');
+    rerender();
+  };
+
+  dlg.querySelector('#tpl-edit').onclick = () => {
+    if (!selectedName) { showToast('Select a template first', 'info'); return; }
+    const allTemplates = loadGlobalTemplates();
+    const template = allTemplates[selectedName];
+    if (!template) return;
+    closeDialog();
+    editTemplateDialog(JSON.parse(JSON.stringify(template)), (updated) => {
+      const latest = loadGlobalTemplates();
+      latest[selectedName] = updated;
+      saveGlobalTemplates(latest);
+      showToast('Template updated', 'success');
+    }, false); // isSessionTemplate=false — full editing
+  };
+
+  dlg.querySelector('#tpl-copy').onclick = () => {
+    if (!selectedName) { showToast('Select a template first', 'info'); return; }
+    const allTemplates = loadGlobalTemplates();
+    const src = allTemplates[selectedName];
+    if (!src) return;
+    const copyName = uniqueName(selectedName + ' Copy', Object.keys(allTemplates));
+    allTemplates[copyName] = { ...JSON.parse(JSON.stringify(src)), name: copyName };
+    saveGlobalTemplates(allTemplates);
+    selectedName = copyName;
+    showToast(`Copied as "${copyName}"`, 'success');
+    rerender();
+  };
+
+  dlg.querySelector('#tpl-import').onclick = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = () => {
+      const file = input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        let data;
+        try { data = JSON.parse(e.target.result); } catch {
+          showToast('Invalid JSON file', 'error');
+          return;
+        }
+        if (!data.template || !data.template.name) {
+          showToast('Invalid template file', 'error');
+          return;
+        }
+        const allTemplates = loadGlobalTemplates();
+        const importedName = uniqueName(data.template.name, Object.keys(allTemplates));
+        allTemplates[importedName] = { ...data.template, name: importedName };
+        saveGlobalTemplates(allTemplates);
+        selectedName = importedName;
+        showToast(`Imported template "${importedName}"`, 'success');
+        rerender();
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  };
+
+  dlg.querySelector('#tpl-export').onclick = () => {
+    if (!selectedName) { showToast('Select a template first', 'info'); return; }
+    const allTemplates = loadGlobalTemplates();
+    const template = allTemplates[selectedName];
+    if (!template) return;
+    const data = JSON.stringify({ version: 1, template }, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `template-${selectedName.replace(/[^a-zA-Z0-9_-]/g, '_')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(`Exported template "${selectedName}"`, 'success');
+  };
 }

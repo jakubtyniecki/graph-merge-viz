@@ -7,6 +7,7 @@ import { exportToFile } from '../graph/serializer.js';
 import { showToast } from './toast.js';
 import { defaultTemplate, GRAPH_TYPES } from '../graph/template.js';
 import { validateEdgeAdd, hasCycle, wouldDisconnectOnNodeRemove, wouldDisconnectOnEdgeRemove } from '../graph/constraints.js';
+import { computePathTags, propagateExclusions, isNodeFullyExcluded, mergeExclusions, formatPathTag, serializeTag } from '../graph/path-tracking.js';
 
 /** Format diff summary as compact string: "+3n ~1n -2n +1e" */
 export function formatDiffSummary(diffs) {
@@ -100,6 +101,12 @@ export class Panel {
     this.lastApproval = null;
     this.container = container;
     this.template = template || defaultTemplate();
+    this.layoutAlgorithm = 'fcose';
+    this.pathTrackingEnabled = false;
+    this.showExclusions = true;
+    this.exclusions = {};  // { "edgeKey": ["serializedTag1", ...] }
+    this._pathTags = null;          // computed, not serialized
+    this._effectiveExclusions = null; // computed, not serialized
     this._history = [];
     this._redoStack = [];
     this._maxHistory = 10;
@@ -113,6 +120,20 @@ export class Panel {
       layout: { name: 'grid' },
       selectionType: 'additive',
     });
+
+    // Tooltip element (appended to panel-canvas parent)
+    this._tooltip = null;
+    this._trackingOverlay = null;
+
+    // Set up edge hover tooltip
+    this.cy.on('mouseover', 'edge', (e) => {
+      const edge = e.target;
+      const tooltip = edge.data('pathTagsTooltip');
+      if (!tooltip || !this.pathTrackingEnabled) return;
+      this._showTooltip(e.originalEvent, tooltip);
+    });
+    this.cy.on('mouseout', 'edge', () => this._hideTooltip());
+    this.cy.on('pan zoom', () => this._hideTooltip());
 
     this._updateHeader();
   }
@@ -146,13 +167,18 @@ export class Panel {
       baseGraph: this.baseGraph ? deepClone(this.baseGraph) : null,
       mergeDirection: this.mergeDirection,
       lastApproval: this.lastApproval,
-      _history: this._history.map(g => deepClone(g)),
-      _redoStack: this._redoStack.map(g => deepClone(g)),
+      layoutAlgorithm: this.layoutAlgorithm,
+      pathTrackingEnabled: this.pathTrackingEnabled,
+      showExclusions: this.showExclusions,
+      exclusions: deepClone(this.exclusions),
+      _history: this._history.map(h => deepClone(h)),
+      _redoStack: this._redoStack.map(h => deepClone(h)),
       _approvalHistory: this._approvalHistory.map(entry => ({
         graph: deepClone(entry.graph),
         baseGraph: entry.baseGraph ? deepClone(entry.baseGraph) : null,
         timestamp: entry.timestamp,
         diffSummary: entry.diffSummary,
+        exclusions: deepClone(entry.exclusions || {}),
       })),
     };
   }
@@ -163,16 +189,23 @@ export class Panel {
     this.baseGraph = state.baseGraph || null;
     this.mergeDirection = state.mergeDirection || null;
     this.lastApproval = state.lastApproval || null;
-    this._history = state._history ? state._history.map(g => deepClone(g)) : [];
-    this._redoStack = state._redoStack ? state._redoStack.map(g => deepClone(g)) : [];
+    this.layoutAlgorithm = state.layoutAlgorithm || 'fcose';
+    this.pathTrackingEnabled = state.pathTrackingEnabled || false;
+    this.showExclusions = state.showExclusions ?? true;
+    this.exclusions = deepClone(state.exclusions || {});
+    // History entries may be plain graphs (old format) or { graph, exclusions } (new format)
+    this._history = state._history ? state._history.map(h => deepClone(h)) : [];
+    this._redoStack = state._redoStack ? state._redoStack.map(h => deepClone(h)) : [];
     this._approvalHistory = state._approvalHistory ? state._approvalHistory.map(entry => ({
       graph: deepClone(entry.graph),
       baseGraph: entry.baseGraph ? deepClone(entry.baseGraph) : null,
       timestamp: entry.timestamp,
       diffSummary: entry.diffSummary,
+      exclusions: deepClone(entry.exclusions || {}),
     })) : [];
     this._syncCytoscape();
     this._applyDiffClasses();
+    this._recomputePathTracking();
     this._updateHeader();
   }
 
@@ -198,6 +231,7 @@ export class Panel {
     };
     this._syncCytoscape();
     this._applyDiffClasses();
+    this._recomputePathTracking();
     this._updateHeader();
     this._emitChange();
     return true;
@@ -226,6 +260,7 @@ export class Panel {
     };
     this._syncCytoscape();
     this._applyDiffClasses();
+    this._recomputePathTracking();
     this._updateHeader();
     this._emitChange();
     return true;
@@ -243,6 +278,7 @@ export class Panel {
     };
     this._syncCytoscape();
     this._applyDiffClasses();
+    this._recomputePathTracking();
     this._updateHeader();
     this._emitChange();
   }
@@ -259,6 +295,7 @@ export class Panel {
     };
     this._syncCytoscape();
     this._applyDiffClasses();
+    this._recomputePathTracking();
     this._updateHeader();
     this._emitChange();
   }
@@ -298,6 +335,13 @@ export class Panel {
     }
 
     this._pushHistory();
+    const deletedEdgeKeys = new Set([...edgeKeys]);
+    this.graph.edges.forEach(e => {
+      if (nodeLabels.has(e.source) || nodeLabels.has(e.target)) {
+        deletedEdgeKeys.add(`${e.source}→${e.target}`);
+      }
+    });
+
     this.graph = {
       nodes: this.graph.nodes.filter(n => !nodeLabels.has(n.label)),
       edges: this.graph.edges.filter(e => {
@@ -307,8 +351,14 @@ export class Panel {
       }),
     };
 
+    // Clean up exclusions for deleted edges
+    const newExclusions = { ...this.exclusions };
+    for (const key of deletedEdgeKeys) delete newExclusions[key];
+    this.exclusions = newExclusions;
+
     this._syncCytoscape();
     this._applyDiffClasses();
+    this._recomputePathTracking();
     this._updateHeader();
     this._emitChange();
   }
@@ -320,9 +370,11 @@ export class Panel {
     this.baseGraph = null;
     this.mergeDirection = null;
     this.lastApproval = null;
+    this.exclusions = {};
     this._approvalHistory = [];
     this._syncCytoscape();
     this._applyDiffClasses();
+    this._recomputePathTracking();
     this._updateHeader();
     this._emitChange();
   }
@@ -342,6 +394,7 @@ export class Panel {
       baseGraph: this.baseGraph ? deepClone(this.baseGraph) : null,
       timestamp: new Date().toISOString(),
       diffSummary,
+      exclusions: deepClone(this.exclusions),
     });
 
     // Cap history at max size
@@ -360,14 +413,18 @@ export class Panel {
   }
 
   /** Receive a merge/push from another panel */
-  receiveMerge(incomingGraph, direction) {
+  receiveMerge(incomingGraph, direction, incomingExclusions = null, sourceTracked = false) {
     // Case 1: Target empty → copy graph, auto-approve
     if (isEmpty(this.graph) && !this.baseGraph) {
       this.graph = deepClone(incomingGraph);
       this.baseGraph = deepClone(incomingGraph);
       this.lastApproval = new Date().toISOString();
       this.mergeDirection = null;
+      if (incomingExclusions) {
+        this.exclusions = mergeExclusions(this.exclusions, incomingExclusions, sourceTracked);
+      }
       this._syncCytoscape();
+      this._recomputePathTracking();
       this._updateHeader();
       this._emitChange();
       return { ok: true };
@@ -377,8 +434,12 @@ export class Panel {
     this._pushHistory();
     this.graph = mergeGraphs(this.graph, incomingGraph, this.baseGraph);
     this.mergeDirection = direction;
+    if (incomingExclusions) {
+      this.exclusions = mergeExclusions(this.exclusions, incomingExclusions, sourceTracked);
+    }
     this._syncCytoscape();
     this._applyDiffClasses();
+    this._recomputePathTracking();
     this._updateHeader();
     this._emitChange();
 
@@ -392,22 +453,30 @@ export class Panel {
   }
 
   /** Paste a subgraph (clipboard content) — additive-only merge with no deletions */
-  pasteSubgraph(incomingGraph, direction) {
+  pasteSubgraph(incomingGraph, direction, incomingExclusions = null, sourceTracked = false) {
     if (isEmpty(this.graph) && !this.baseGraph) {
       // Same as receiveMerge Case 1: empty target → copy + auto-approve
       this.graph = deepClone(incomingGraph);
       this.baseGraph = deepClone(incomingGraph);
       this.lastApproval = new Date().toISOString();
       this.mergeDirection = null;
+      if (incomingExclusions) {
+        this.exclusions = mergeExclusions(this.exclusions, incomingExclusions, sourceTracked);
+      }
       this._syncCytoscape();
+      this._recomputePathTracking();
       this._updateHeader();
       this._emitChange();
     } else {
       this._pushHistory();
       this.graph = mergeGraphs(this.graph, incomingGraph, null); // null = no deletions
       this.mergeDirection = direction;
+      if (incomingExclusions) {
+        this.exclusions = mergeExclusions(this.exclusions, incomingExclusions, sourceTracked);
+      }
       this._syncCytoscape();
       this._applyDiffClasses();
+      this._recomputePathTracking();
       this._updateHeader();
       this._emitChange();
     }
@@ -437,10 +506,13 @@ export class Panel {
       showToast('Nothing to undo', 'info');
       return false;
     }
-    this._redoStack.push(deepClone(this.graph));
-    this.graph = this._history.pop();
+    this._redoStack.push({ graph: deepClone(this.graph), exclusions: deepClone(this.exclusions) });
+    const entry = this._history.pop();
+    this.graph = this._historyGraph(entry);
+    this.exclusions = this._historyExclusions(entry);
     this._syncCytoscape();
     this._applyDiffClasses();
+    this._recomputePathTracking();
     this._updateHeader();
     this._emitChange();
     showToast('Undo', 'info');
@@ -453,11 +525,14 @@ export class Panel {
       showToast('Nothing to redo', 'info');
       return false;
     }
-    this._history.push(deepClone(this.graph));
+    this._history.push({ graph: deepClone(this.graph), exclusions: deepClone(this.exclusions) });
     if (this._history.length > this._maxHistory) this._history.shift();
-    this.graph = this._redoStack.pop();
+    const entry = this._redoStack.pop();
+    this.graph = this._historyGraph(entry);
+    this.exclusions = this._historyExclusions(entry);
     this._syncCytoscape();
     this._applyDiffClasses();
+    this._recomputePathTracking();
     this._updateHeader();
     this._emitChange();
     showToast('Redo', 'info');
@@ -472,8 +547,12 @@ export class Panel {
     }
     this._pushHistory();
     this.graph = deepClone(this.baseGraph);
+    // Restore exclusions from last approval
+    const lastApproval = this._approvalHistory[this._approvalHistory.length - 1];
+    this.exclusions = lastApproval?.exclusions ? deepClone(lastApproval.exclusions) : {};
     this._syncCytoscape();
     this._applyDiffClasses();  // Will show no diffs (graph === baseGraph)
+    this._recomputePathTracking();
     this._updateHeader();
     this._emitChange();
     showToast(`Panel ${this.id} restored to approved state`, 'success');
@@ -512,11 +591,21 @@ export class Panel {
     return computeDiff(this.baseGraph, this.graph).length === 0;
   }
 
-  /** Push current graph to history before mutation */
+  /** Push current graph + exclusions to history before mutation */
   _pushHistory() {
-    this._history.push(deepClone(this.graph));
+    this._history.push({ graph: deepClone(this.graph), exclusions: deepClone(this.exclusions) });
     if (this._history.length > this._maxHistory) this._history.shift();
     this._redoStack = [];  // Clear redo stack on new mutation
+  }
+
+  /** Extract graph from a history entry (supports old plain-graph format) */
+  _historyGraph(entry) {
+    return entry && entry.graph ? entry.graph : entry;
+  }
+
+  /** Extract exclusions from a history entry (supports old plain-graph format) */
+  _historyExclusions(entry) {
+    return entry && entry.exclusions ? entry.exclusions : {};
   }
 
   /** Sync Cytoscape instance from graph data */
@@ -642,10 +731,17 @@ export class Panel {
     return result;
   }
 
+  /** Set layout algorithm and re-run layout */
+  setLayoutAlgorithm(algo) {
+    this.layoutAlgorithm = algo;
+    this._runLayout();
+    this._emitChange();
+  }
+
   /** Run layout */
   _runLayout() {
     if (this.cy.elements().length === 0) return;
-    const algo = window.__layoutAlgorithm || 'fcose';
+    const algo = this.layoutAlgorithm || 'fcose';
     this.cy.layout({
       name: this.cy.nodes().length > 1 ? algo : 'grid',
       animate: false,
@@ -672,6 +768,188 @@ export class Panel {
 
     overlayEl.textContent = formatDiffSummary(diffs);
     overlayEl.classList.add('visible');
+  }
+
+  /** Toggle path tracking on/off */
+  setPathTracking(enabled) {
+    this.pathTrackingEnabled = enabled;
+    if (enabled) {
+      this._recomputePathTracking();
+    } else {
+      this._pathTags = null;
+      this._effectiveExclusions = null;
+      this._clearTrackingVisuals();
+    }
+    this._updateTrackingOverlay();
+    this._emitChange();
+  }
+
+  /** Toggle show-exclusions mode */
+  setShowExclusions(show) {
+    this.showExclusions = show;
+    this._applyExclusionVisibility();
+    this._emitChange();
+  }
+
+  /** Exclude a path tag on an edge */
+  excludePathTag(edgeKey, serializedTag) {
+    this._pushHistory();
+    const current = this.exclusions[edgeKey] || [];
+    if (!current.includes(serializedTag)) {
+      this.exclusions = { ...this.exclusions, [edgeKey]: [...current, serializedTag] };
+    }
+    this._recomputePathTracking();
+    this._emitChange();
+  }
+
+  /** Include (remove exclusion of) a path tag on an edge */
+  includePathTag(edgeKey, serializedTag) {
+    this._pushHistory();
+    const current = this.exclusions[edgeKey] || [];
+    const updated = current.filter(t => t !== serializedTag);
+    const newExclusions = { ...this.exclusions };
+    if (updated.length === 0) {
+      delete newExclusions[edgeKey];
+    } else {
+      newExclusions[edgeKey] = updated;
+    }
+    this.exclusions = newExclusions;
+    this._recomputePathTracking();
+    this._emitChange();
+  }
+
+  /** Get exclusions relevant to a subgraph's edges (for clipboard) */
+  getRelevantExclusions(subgraph) {
+    const edgeKeys = new Set(subgraph.edges.map(e => `${e.source}→${e.target}`));
+    const result = {};
+    for (const [key, tags] of Object.entries(this.exclusions)) {
+      if (edgeKeys.has(key)) result[key] = tags;
+    }
+    return result;
+  }
+
+  /** Recompute path tags and effective exclusions, then update visuals */
+  _recomputePathTracking() {
+    if (!this.pathTrackingEnabled) return;
+    const specialTypes = this.template?.specialTypes || [];
+    if (specialTypes.length === 0) return;
+
+    this._pathTags = computePathTags(this.graph, specialTypes);
+    this._effectiveExclusions = propagateExclusions(this.graph, this.exclusions, this._pathTags, specialTypes);
+    this._applyTrackingVisuals();
+    this._updateTrackingOverlay();
+  }
+
+  /** Apply tracking visual classes and tooltip data */
+  _applyTrackingVisuals() {
+    if (!this.pathTrackingEnabled || !this._pathTags) return;
+
+    const specialTypes = this.template?.specialTypes || [];
+
+    // Clear previous tracking classes
+    this.cy.edges().removeClass('edge-excluded edge-all-excluded');
+    this.cy.nodes().removeClass('node-fully-excluded');
+
+    for (const edge of this.graph.edges) {
+      const key = `${edge.source}→${edge.target}`;
+      const tags = this._pathTags.get(key) || [];
+      const excluded = this._effectiveExclusions?.get(key) || new Set();
+      const cyEdge = this.cy.$id(key);
+      if (cyEdge.empty()) continue;
+
+      // Format tooltip
+      const includedTags = tags.filter(t => !excluded.has(serializeTag(t, specialTypes)));
+      const excludedTags = tags.filter(t => excluded.has(serializeTag(t, specialTypes)));
+      const parts = [];
+      if (includedTags.length) parts.push('Included: ' + includedTags.map(t => formatPathTag(t, specialTypes, this.template?.nodeTypes)).join(', '));
+      if (excludedTags.length) parts.push('Excluded: ' + excludedTags.map(t => formatPathTag(t, specialTypes, this.template?.nodeTypes)).join(', '));
+      cyEdge.data('pathTagsTooltip', parts.join('\n') || '(no tags)');
+
+      // CSS classes
+      if (excluded.size > 0) cyEdge.addClass('edge-excluded');
+      if (tags.length > 0 && excludedTags.length === tags.length) cyEdge.addClass('edge-all-excluded');
+    }
+
+    // Mark fully excluded nodes
+    for (const node of this.graph.nodes) {
+      if (isNodeFullyExcluded(this.graph, node.label, this._pathTags, this._effectiveExclusions || new Map(), specialTypes)) {
+        this.cy.$id(node.label).addClass('node-fully-excluded');
+      }
+    }
+
+    this._applyExclusionVisibility();
+  }
+
+  /** Show or hide fully excluded elements based on showExclusions flag */
+  _applyExclusionVisibility() {
+    if (!this.pathTrackingEnabled) return;
+
+    if (this.showExclusions) {
+      this.cy.elements().removeClass('tracking-hidden');
+    } else {
+      // Hide fully excluded nodes
+      this.cy.nodes('.node-fully-excluded').addClass('tracking-hidden');
+      // Hide fully excluded edges
+      this.cy.edges('.edge-all-excluded').addClass('tracking-hidden');
+    }
+  }
+
+  /** Clear all tracking visual classes */
+  _clearTrackingVisuals() {
+    this.cy.elements().removeClass('edge-excluded edge-all-excluded node-fully-excluded tracking-hidden');
+    this.cy.edges().data('pathTagsTooltip', null);
+    this._removeTrackingOverlay();
+  }
+
+  /** Show tooltip at mouse position */
+  _showTooltip(mouseEvent, text) {
+    if (!this._tooltip) {
+      this._tooltip = document.createElement('div');
+      this._tooltip.className = 'path-tooltip';
+      this.container.appendChild(this._tooltip);
+    }
+    this._tooltip.textContent = text;
+    this._tooltip.style.display = 'block';
+    const rect = this.container.getBoundingClientRect();
+    this._tooltip.style.left = `${mouseEvent.clientX - rect.left + 12}px`;
+    this._tooltip.style.top = `${mouseEvent.clientY - rect.top - 8}px`;
+  }
+
+  /** Hide tooltip */
+  _hideTooltip() {
+    if (this._tooltip) this._tooltip.style.display = 'none';
+  }
+
+  /** Ensure tracking overlay (show exclusions checkbox) exists */
+  _ensureTrackingOverlay() {
+    if (this._trackingOverlay) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'tracking-overlay';
+    overlay.innerHTML = `<label><input type="checkbox" class="show-exclusions-cb"> Show exclusions</label>`;
+    this.container.appendChild(overlay);
+    overlay.querySelector('.show-exclusions-cb').addEventListener('change', e => {
+      this.setShowExclusions(e.target.checked);
+    });
+    this._trackingOverlay = overlay;
+  }
+
+  /** Remove tracking overlay */
+  _removeTrackingOverlay() {
+    if (this._trackingOverlay) {
+      this._trackingOverlay.remove();
+      this._trackingOverlay = null;
+    }
+  }
+
+  /** Update overlay visibility and checkbox state */
+  _updateTrackingOverlay() {
+    if (this.pathTrackingEnabled) {
+      this._ensureTrackingOverlay();
+      const cb = this._trackingOverlay?.querySelector('.show-exclusions-cb');
+      if (cb) cb.checked = this.showExclusions;
+    } else {
+      this._removeTrackingOverlay();
+    }
   }
 
   /** Emit a change event for session auto-save */
