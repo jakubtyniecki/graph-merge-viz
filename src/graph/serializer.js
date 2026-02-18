@@ -44,10 +44,10 @@ export function validateGraph(data) {
     }
   }
 
-  // Normalize: ensure props exists
+  // Normalize: ensure props exists, preserve type
   const graph = {
-    nodes: data.nodes.map(n => ({ label: n.label, props: n.props || {} })),
-    edges: data.edges.map(e => ({ source: e.source, target: e.target, props: e.props || {} })),
+    nodes: data.nodes.map(n => ({ label: n.label, type: n.type || null, props: n.props || {} })),
+    edges: data.edges.map(e => ({ source: e.source, target: e.target, type: e.type || null, props: e.props || {} })),
   };
 
   return { ok: true, graph };

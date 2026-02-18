@@ -2,7 +2,7 @@
 
 **GitHub Repo:** https://github.com/jakubtyniecki/graph-merge-viz (private)
 **Branch:** master (single branch, keep clean)
-**Last Updated:** 2026-02-16 (bug fixes: paste, dialogs, branch selection)
+**Last Updated:** 2026-02-18 (template system: typed nodes/edges + graph constraints)
 
 ---
 
@@ -18,6 +18,44 @@
 ## Key Architecture
 
 ### Recent Changes
+
+**2026-02-18: Template System — Typed Nodes/Edges + Graph Constraints**
+
+1. **New Files**
+   - `src/graph/template.js` — `GRAPH_TYPES` constant, `defaultTemplate()`, `createTemplate()`, add/remove/update type functions
+   - `src/graph/constraints.js` — `validateEdgeAdd()`, `wouldCreateCycle()`, `hasCycle()`, `isConnected()`, disconnect checks, undirected duplicate edge check
+   - `src/ui/template-ui.js` — Global template CRUD in header (localStorage key: `graph-merge-templates`), `uniqueName()` utility
+
+2. **Data Model Changes**
+   - Node: `{ label, type: "nt1" | null, props }` — `type` preserved by deepClone/merge/serializer
+   - Edge: `{ source, target, type: "et1" | null, props }`
+   - Session now has `template: { name, graphType, nodeTypes: [{id, label, color}], edgeTypes: [...] }`
+   - Template storage: global templates in `localStorage['graph-merge-templates']`, session template embedded in session data
+
+3. **Template System Architecture**
+   - Global templates: managed in header via `template-ui.js`, selecting applies to current panels
+   - Session template: embedded deep-copy; "New Session" dialog picks starting template; "Edit Template" in session menu
+   - `Panel.setTemplate(template)` rebuilds Cytoscape styles via `cy.style().fromJson(...).update()`
+   - `buildStylesForTemplate(template)` in `styles.js`: appends undirected arrow removal + node/edge type colors to `baseStyles`
+   - Migration: old sessions without `template` get `{ graphType: 'DG', ... }` to preserve directed arrows
+
+4. **Constraint Enforcement**
+   - `addEdge()` in Panel calls `validateEdgeAdd()` — blocks cycles in acyclic types, undirected duplicate edges, self-loops
+   - Post-merge: `hasCycle()` check in `receiveMerge()` → warning toast (not blocked)
+   - UTree deletes: `deleteSelected(confirmFn)` checks `wouldDisconnectOnNodeRemove/EdgeRemove` → warn-but-allow dialog
+   - `confirmFn` passed from `main.js`, `context-menu.js`, and `clipboard.js` key handler
+
+5. **UI Changes**
+   - `addNodeDialog`: type `<select>` if template has nodeTypes
+   - `addEdgeDialog`: type `<select>` if edgeTypes; "Node A/B" labels for undirected types
+   - `editSelectedDialog`: type dropdown (pre-selected to current type) for nodes and edges
+   - `editTemplateDialog(template, onSave)`: interactive editor for node/edge types (label + color picker + delete + add)
+   - `newSessionDialog(globalTemplates)`: name + template selection (replaces `prompt`)
+
+6. **Session Changes**
+   - `setupSession(panels, layoutManager, onTemplateChange)` — new third param callback
+   - "Edit Template" in session ☰ menu → calls `editTemplateDialog` → propagates via `onTemplateChange`
+   - Import: template travels with session; session names use `uniqueName()` to avoid collisions
 
 **2026-02-16: Bug Fixes + Branch Selection Feature**
 
@@ -90,25 +128,28 @@
 ```
 src/
 ├── index.html              # Minimal: header + empty #app + toast
-├── main.js                 # Entry: init LayoutManager, wire events
-├── style.css               # Dark theme, split containers, merge gutters
+├── main.js                 # Entry: init LayoutManager, wire events, propagateTemplate()
+├── style.css               # Dark theme, split containers, merge gutters, template UI
 │
 ├── graph/                  # Pure data layer (no DOM/side effects)
-│   ├── model.js           # Graph CRUD: createGraph, addNode, etc.
+│   ├── model.js           # Graph CRUD: createGraph, addNode(label, props, type), etc.
 │   ├── diff.js            # computeDiff(base, current) → DiffEntry[]
 │   ├── merge.js           # mergeGraphs(target, incoming) → Graph
-│   └── serializer.js      # JSON import/export + validation
+│   ├── serializer.js      # JSON import/export + validation (preserves type field)
+│   ├── template.js        # GRAPH_TYPES, defaultTemplate(), createTemplate(), type CRUD
+│   └── constraints.js     # validateEdgeAdd(), wouldCreateCycle(), hasCycle(), isConnected()
 │
 ├── ui/                    # Impure UI layer (DOM, Cytoscape, localStorage)
 │   ├── layout.js          # LayoutManager: recursive split tree + render
-│   ├── panel.js           # Panel class: Cytoscape instance + state
-│   ├── dialogs.js         # Modal dialogs: add node/edge, edit, import
-│   ├── session.js         # LocalStorage: save/restore layout + panels
+│   ├── panel.js           # Panel class: template property, setTemplate(), constraint-aware addEdge/deleteSelected
+│   ├── dialogs.js         # Modal dialogs + editTemplateDialog() + newSessionDialog()
+│   ├── session.js         # LocalStorage: sessions + template, setupSession(panels, lm, onTemplateChange)
+│   ├── template-ui.js     # Global template CRUD in header (localStorage: graph-merge-templates)
 │   ├── clipboard.js       # Ctrl+C/V: copy/paste subgraph
 │   └── toast.js           # Notifications: showToast()
 │
 └── cytoscape/
-    └── styles.js          # Cytoscape stylesheet + diff colors
+    └── styles.js          # baseStyles + buildStylesForTemplate(template)
 ```
 
 ---
@@ -330,4 +371,4 @@ Edit .merge-gutter / .resize-handle / .merge-btn in style.css
 
 ---
 
-Last worked on: **2026-02-16** — Merge strategy overhaul + panel features (rename, zoom, add panel, zone-based gutters) complete.
+Last worked on: **2026-02-18** — Template system: typed nodes/edges, graph constraints (DAG/UTree/Forest/UCG/DG), global template management in header, session template editing.

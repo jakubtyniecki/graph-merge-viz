@@ -1,5 +1,6 @@
 import { showToast } from './toast.js';
 import { getAncestorSubgraph, createEdge } from '../graph/model.js';
+import { confirmDialog } from './dialogs.js';
 
 let _getPanels = null;
 let _clipboard = null; // { nodes: [], edges: [] }
@@ -29,7 +30,7 @@ export function setupClipboard(getPanels) {
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       if (_focusedPanelId) {
         const panel = _getPanels().get(_focusedPanelId);
-        if (panel) panel.deleteSelected();
+        if (panel) panel.deleteSelected((title, msg) => confirmDialog(title, msg, panel.panelEl));
       }
     } else if (e.key === 'Escape') {
       if (_focusedPanelId) {

@@ -1,3 +1,5 @@
+import { GRAPH_TYPES } from '../graph/template.js';
+
 export const baseStyles = [
   {
     selector: 'node',
@@ -74,3 +76,26 @@ export const baseStyles = [
     },
   },
 ];
+
+/** Build a Cytoscape stylesheet from a template (type colors + directed/undirected arrows) */
+export function buildStylesForTemplate(template) {
+  const styles = [...baseStyles];
+  const typeInfo = GRAPH_TYPES[template?.graphType];
+
+  if (typeInfo && !typeInfo.directed) {
+    styles.push({ selector: 'edge', style: { 'target-arrow-shape': 'none' } });
+  }
+
+  for (const nt of (template?.nodeTypes || [])) {
+    styles.push({ selector: `node[type = "${nt.id}"]`, style: { 'background-color': nt.color } });
+  }
+
+  for (const et of (template?.edgeTypes || [])) {
+    styles.push({
+      selector: `edge[type = "${et.id}"]`,
+      style: { 'line-color': et.color, 'target-arrow-color': et.color },
+    });
+  }
+
+  return styles;
+}

@@ -1,5 +1,8 @@
 import { showToast } from './toast.js';
 import { updateStatusBar } from './status-bar.js';
+import { editTemplateDialog, newSessionDialog } from './dialogs.js';
+import { loadGlobalTemplates, uniqueName } from './template-ui.js';
+import { defaultTemplate } from '../graph/template.js';
 
 const STORAGE_KEY = 'graph-merge-sessions';
 const ACTIVE_KEY = 'graph-merge-active-session';
@@ -7,6 +10,8 @@ const ACTIVE_KEY = 'graph-merge-active-session';
 let _panels = null;
 let _layoutManager = null;
 let _saveTimeout = null;
+let _currentTemplate = defaultTemplate();
+let _onTemplateChange = null;
 
 function loadSessions() {
   try {
@@ -33,13 +38,10 @@ function migrateOldSession(session) {
   if (!session.state) return session;
   if (session.layout) return session;
 
-  // Old format: { state: { "1.1": PanelState, "1.2": ..., "2.1": ..., "3.1": ... } }
-  // New format: { layout: { tree, nextId }, panels: { "1": PanelState, ... } }
   const oldIds = Object.keys(session.state);
   const panels = {};
   let nextId = 1;
 
-  // Map first two old panels to new panel IDs 1 and 2
   const mapping = {};
   for (const oldId of oldIds.slice(0, 2)) {
     const newId = String(nextId++);
@@ -62,8 +64,22 @@ function migrateOldSession(session) {
       nextId,
     },
     panels,
+    // Old sessions get DG to preserve directed arrows
+    template: { name: 'Default', graphType: 'DG', nodeTypes: [], edgeTypes: [] },
     savedAt: session.savedAt,
   };
+}
+
+/** Migrate sessions missing template field */
+function migrateTemplate(session) {
+  if (!session.template) {
+    return { ...session, template: { name: 'Default', graphType: 'DG', nodeTypes: [], edgeTypes: [] } };
+  }
+  return session;
+}
+
+export function getSessionTemplate() {
+  return _currentTemplate;
 }
 
 function saveCurrentSession() {
@@ -77,6 +93,7 @@ function saveCurrentSession() {
   sessions[name] = {
     layout: _layoutManager.getLayout(),
     panels: panelStates,
+    template: _currentTemplate,
     layoutAlgorithm: window.__layoutAlgorithm || 'fcose',
     savedAt: new Date().toISOString(),
   };
@@ -89,8 +106,9 @@ function restoreSession(name) {
   let session = sessions[name];
   if (!session) return;
 
-  // Migrate old format if needed
+  // Migrate formats
   session = migrateOldSession(session);
+  session = migrateTemplate(session);
   sessions[name] = session;
   saveSessions(sessions);
 
@@ -101,7 +119,11 @@ function restoreSession(name) {
     if (select) select.value = session.layoutAlgorithm;
   }
 
-  // Restore layout (this destroys old panels and creates new ones)
+  // Restore template
+  _currentTemplate = session.template || defaultTemplate();
+  if (_onTemplateChange) _onTemplateChange(_currentTemplate);
+
+  // Restore layout (destroys old panels and creates new ones)
   if (session.layout) {
     _layoutManager.setLayout(session.layout);
   }
@@ -145,6 +167,9 @@ function renderSessionControls() {
         <button id="session-new">New</button>
         <button id="session-rename">Rename</button>
         <button id="session-delete">Delete</button>
+        <hr class="menu-divider">
+        <button id="session-edit-template">Edit Template</button>
+        <hr class="menu-divider">
         <button id="session-export">Export</button>
         <button id="session-import">Import</button>
       </div>
@@ -162,12 +187,10 @@ function renderSessionControls() {
     menu.hidden = !menu.hidden;
   };
 
-  // Close on outside click — use capture so it works before other handlers
   const onDocClick = e => {
     if (!container.contains(e.target)) closeMenu();
   };
   document.addEventListener('click', onDocClick);
-  // Clean up listener when the container is next re-rendered (DOM replaced)
   const observer = new MutationObserver(() => {
     if (!document.contains(menuToggle)) {
       document.removeEventListener('click', onDocClick);
@@ -176,12 +199,9 @@ function renderSessionControls() {
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
-  // Close menu when any action button inside is clicked
   const wrapAction = (id, fn) => {
-    container.querySelector(id).onclick = () => {
-      closeMenu();
-      fn();
-    };
+    const el = container.querySelector(id);
+    if (el) el.onclick = () => { closeMenu(); fn(); };
   };
 
   container.querySelector('#session-select').onchange = e => {
@@ -191,11 +211,16 @@ function renderSessionControls() {
     updateStatusBar();
   };
 
-  wrapAction('#session-new', () => {
-    const name = prompt('Session name:');
-    if (!name || !name.trim()) return;
+  wrapAction('#session-new', async () => {
+    const globalTemplates = loadGlobalTemplates();
+    const result = await newSessionDialog(globalTemplates);
+    if (!result) return;
+    const { name, templateName } = result;
+    const chosenTemplate = JSON.parse(JSON.stringify(globalTemplates[templateName] || defaultTemplate()));
+
     saveCurrentSession();
-    // Re-init layout with fresh 2 panels
+    _currentTemplate = chosenTemplate;
+    if (_onTemplateChange) _onTemplateChange(_currentTemplate);
     _layoutManager.init();
     setActiveSessionName(name.trim());
     saveCurrentSession();
@@ -233,6 +258,15 @@ function renderSessionControls() {
     renderSessionControls();
     showToast(`Deleted session "${name}"`, 'info');
     updateStatusBar();
+  });
+
+  wrapAction('#session-edit-template', () => {
+    editTemplateDialog(_currentTemplate, (newTemplate) => {
+      _currentTemplate = newTemplate;
+      if (_onTemplateChange) _onTemplateChange(_currentTemplate);
+      debouncedSave();
+      showToast('Template updated', 'success');
+    });
   });
 
   wrapAction('#session-export', exportSession);
@@ -309,29 +343,27 @@ function importSession() {
         return;
       }
 
-      // Validate structure
       if (!data.layout || !data.panels) {
         showToast('Invalid session file: missing layout or panels', 'error');
         return;
       }
 
-      // Determine session name
+      // Determine unique session name
+      const sessions = loadSessions();
       const defaultName = data.sessionName || 'Imported';
-      const rawName = prompt('Session name for imported session:', defaultName);
+      const rawName = prompt('Session name for imported session:', uniqueName(defaultName, Object.keys(sessions)));
       if (!rawName || !rawName.trim()) return;
       const importedName = rawName.trim();
 
-      // Save as new session
-      const sessions = loadSessions();
       sessions[importedName] = {
         layout: data.layout,
         panels: data.panels,
+        template: data.template || { name: 'Default', graphType: 'DG', nodeTypes: [], edgeTypes: [] },
         layoutAlgorithm: data.layoutAlgorithm,
         savedAt: data.savedAt || new Date().toISOString(),
       };
       saveSessions(sessions);
 
-      // Switch to the imported session
       saveCurrentSession();
       restoreSession(importedName);
       renderSessionControls();
@@ -343,20 +375,18 @@ function importSession() {
   input.click();
 }
 
-export function setupSession(panels, layoutManager) {
+export function setupSession(panels, layoutManager, onTemplateChange) {
   _panels = panels;
   _layoutManager = layoutManager;
+  _onTemplateChange = onTemplateChange;
 
-  // Listen for panel changes → debounced save
   window.addEventListener('panel-change', debouncedSave);
 
-  // Restore active session on load
   const active = getActiveSessionName();
   const sessions = loadSessions();
   if (sessions[active]) {
     restoreSession(active);
   } else {
-    // Ensure the default session exists
     saveCurrentSession();
   }
 

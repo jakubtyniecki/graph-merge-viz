@@ -132,7 +132,7 @@ function buildCanvasMenu(panel) {
     items.push({ separator: true });
     items.push({
       label: `Delete Selected (${selected.length})`,
-      action: () => panel.deleteSelected(),
+      action: () => panel.deleteSelected((title, msg) => confirmDialog(title, msg, panel.panelEl)),
     });
   }
 
@@ -171,7 +171,7 @@ function buildNodeMenu(panel, node) {
       action: () => {
         panel.cy.elements().unselect();
         node.select();
-        panel.deleteSelected();
+        panel.deleteSelected((title, msg) => confirmDialog(title, msg, panel.panelEl));
       },
     },
   ];
@@ -229,7 +229,7 @@ function buildEdgeMenu(panel, edge) {
       action: () => {
         panel.cy.elements().unselect();
         edge.select();
-        panel.deleteSelected();
+        panel.deleteSelected((title, msg) => confirmDialog(title, msg, panel.panelEl));
       },
     },
   ];

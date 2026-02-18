@@ -1,10 +1,12 @@
 import cytoscape from 'cytoscape';
-import { baseStyles } from '../cytoscape/styles.js';
+import { buildStylesForTemplate } from '../cytoscape/styles.js';
 import { computeDiff } from '../graph/diff.js';
 import { mergeGraphs } from '../graph/merge.js';
 import { createGraph, deepClone, isEmpty, nodeKey, edgeKey, getAncestorSubgraph } from '../graph/model.js';
 import { exportToFile } from '../graph/serializer.js';
 import { showToast } from './toast.js';
+import { defaultTemplate, GRAPH_TYPES } from '../graph/template.js';
+import { validateEdgeAdd, hasCycle, wouldDisconnectOnNodeRemove, wouldDisconnectOnEdgeRemove } from '../graph/constraints.js';
 
 /** Format diff summary as compact string: "+3n ~1n -2n +1e" */
 export function formatDiffSummary(diffs) {
@@ -25,14 +27,79 @@ export function formatDiffSummary(diffs) {
   return parts.join(' ');
 }
 
+/** Format grouped diff summary as human-readable text.
+ *  "Added 3 nodes: A, B, C. Removed 1 edge: X→Y. Modified 1 node: Z (prop changed)" */
+export function formatGroupedDiffSummary(diffs) {
+  if (diffs.length === 0) return 'No changes.';
+
+  const groups = {
+    addedNodes: [],
+    removedNodes: [],
+    modifiedNodes: [],
+    addedEdges: [],
+    removedEdges: [],
+    modifiedEdges: [],
+  };
+
+  for (const d of diffs) {
+    if (d.type === 'node') {
+      if (d.action === 'added') groups.addedNodes.push(d.key);
+      else if (d.action === 'removed') groups.removedNodes.push(d.key);
+      else if (d.action === 'modified') groups.modifiedNodes.push({ key: d.key, changes: d.changes });
+    } else {
+      if (d.action === 'added') groups.addedEdges.push(d.key);
+      else if (d.action === 'removed') groups.removedEdges.push(d.key);
+      else if (d.action === 'modified') groups.modifiedEdges.push({ key: d.key, changes: d.changes });
+    }
+  }
+
+  const sentences = [];
+
+  if (groups.addedNodes.length) {
+    const n = groups.addedNodes.length;
+    sentences.push(`Added ${n} node${n > 1 ? 's' : ''}: ${groups.addedNodes.join(', ')}`);
+  }
+  if (groups.removedNodes.length) {
+    const n = groups.removedNodes.length;
+    sentences.push(`Removed ${n} node${n > 1 ? 's' : ''}: ${groups.removedNodes.join(', ')}`);
+  }
+  if (groups.modifiedNodes.length) {
+    const items = groups.modifiedNodes.map(({ key, changes }) => {
+      const detail = changes && changes.length ? `(${changes.map(c => c.key).join(', ')} changed)` : '';
+      return detail ? `${key} ${detail}` : key;
+    });
+    const n = groups.modifiedNodes.length;
+    sentences.push(`Modified ${n} node${n > 1 ? 's' : ''}: ${items.join(', ')}`);
+  }
+  if (groups.addedEdges.length) {
+    const n = groups.addedEdges.length;
+    sentences.push(`Added ${n} edge${n > 1 ? 's' : ''}: ${groups.addedEdges.join(', ')}`);
+  }
+  if (groups.removedEdges.length) {
+    const n = groups.removedEdges.length;
+    sentences.push(`Removed ${n} edge${n > 1 ? 's' : ''}: ${groups.removedEdges.join(', ')}`);
+  }
+  if (groups.modifiedEdges.length) {
+    const items = groups.modifiedEdges.map(({ key, changes }) => {
+      const detail = changes && changes.length ? `(${changes.map(c => c.key).join(', ')} changed)` : '';
+      return detail ? `${key} ${detail}` : key;
+    });
+    const n = groups.modifiedEdges.length;
+    sentences.push(`Modified ${n} edge${n > 1 ? 's' : ''}: ${items.join(', ')}`);
+  }
+
+  return sentences.join('. ') + '.';
+}
+
 export class Panel {
-  constructor(id, container) {
+  constructor(id, container, template = null) {
     this.id = id;
     this.graph = createGraph();
     this.baseGraph = null;
     this.mergeDirection = null;
     this.lastApproval = null;
     this.container = container;
+    this.template = template || defaultTemplate();
     this._history = [];
     this._redoStack = [];
     this._maxHistory = 10;
@@ -42,12 +109,18 @@ export class Panel {
     this.cy = cytoscape({
       container,
       elements: [],
-      style: baseStyles,
+      style: buildStylesForTemplate(this.template),
       layout: { name: 'grid' },
       selectionType: 'additive',
     });
 
     this._updateHeader();
+  }
+
+  /** Update the template and rebuild Cytoscape styles */
+  setTemplate(template) {
+    this.template = template;
+    this.cy.style().fromJson(buildStylesForTemplate(template)).update();
   }
 
   /** Get the panel element (parent of canvas) */
@@ -77,6 +150,7 @@ export class Panel {
       _redoStack: this._redoStack.map(g => deepClone(g)),
       _approvalHistory: this._approvalHistory.map(entry => ({
         graph: deepClone(entry.graph),
+        baseGraph: entry.baseGraph ? deepClone(entry.baseGraph) : null,
         timestamp: entry.timestamp,
         diffSummary: entry.diffSummary,
       })),
@@ -93,6 +167,7 @@ export class Panel {
     this._redoStack = state._redoStack ? state._redoStack.map(g => deepClone(g)) : [];
     this._approvalHistory = state._approvalHistory ? state._approvalHistory.map(entry => ({
       graph: deepClone(entry.graph),
+      baseGraph: entry.baseGraph ? deepClone(entry.baseGraph) : null,
       timestamp: entry.timestamp,
       diffSummary: entry.diffSummary,
     })) : [];
@@ -111,14 +186,14 @@ export class Panel {
   }
 
   /** Add a node */
-  addNode(label, props = {}) {
+  addNode(label, props = {}, type = null) {
     if (this.graph.nodes.some(n => n.label === label)) {
       showToast(`Node "${label}" already exists`, 'error');
       return false;
     }
     this._pushHistory();
     this.graph = {
-      nodes: [...this.graph.nodes, { label, props: { ...props } }],
+      nodes: [...this.graph.nodes, { label, type, props: { ...props } }],
       edges: [...this.graph.edges],
     };
     this._syncCytoscape();
@@ -129,7 +204,7 @@ export class Panel {
   }
 
   /** Add an edge */
-  addEdge(source, target, props = {}) {
+  addEdge(source, target, props = {}, type = null) {
     if (!this.graph.nodes.some(n => n.label === source)) {
       showToast(`Source node "${source}" not found`, 'error');
       return false;
@@ -138,14 +213,16 @@ export class Panel {
       showToast(`Target node "${target}" not found`, 'error');
       return false;
     }
-    if (this.graph.edges.some(e => e.source === source && e.target === target)) {
-      showToast(`Edge "${source}→${target}" already exists`, 'error');
+    const graphType = this.template?.graphType || 'DG';
+    const check = validateEdgeAdd(this.graph, source, target, graphType);
+    if (!check.ok) {
+      showToast(check.error, 'error');
       return false;
     }
     this._pushHistory();
     this.graph = {
       nodes: [...this.graph.nodes],
-      edges: [...this.graph.edges, { source, target, props: { ...props } }],
+      edges: [...this.graph.edges, { source, target, type, props: { ...props } }],
     };
     this._syncCytoscape();
     this._applyDiffClasses();
@@ -154,11 +231,14 @@ export class Panel {
     return true;
   }
 
-  /** Update node props */
-  updateNodeProps(label, props) {
+  /** Update node props (and optionally type) */
+  updateNodeProps(label, props, type = undefined) {
     this._pushHistory();
     this.graph = {
-      nodes: this.graph.nodes.map(n => n.label === label ? { ...n, props: { ...props } } : n),
+      nodes: this.graph.nodes.map(n => {
+        if (n.label !== label) return n;
+        return type !== undefined ? { ...n, props: { ...props }, type } : { ...n, props: { ...props } };
+      }),
       edges: [...this.graph.edges],
     };
     this._syncCytoscape();
@@ -167,14 +247,15 @@ export class Panel {
     this._emitChange();
   }
 
-  /** Update edge props */
-  updateEdgeProps(source, target, props) {
+  /** Update edge props (and optionally type) */
+  updateEdgeProps(source, target, props, type = undefined) {
     this._pushHistory();
     this.graph = {
       nodes: [...this.graph.nodes],
-      edges: this.graph.edges.map(e =>
-        (e.source === source && e.target === target) ? { ...e, props: { ...props } } : e
-      ),
+      edges: this.graph.edges.map(e => {
+        if (!(e.source === source && e.target === target)) return e;
+        return type !== undefined ? { ...e, props: { ...props }, type } : { ...e, props: { ...props } };
+      }),
     };
     this._syncCytoscape();
     this._applyDiffClasses();
@@ -182,23 +263,41 @@ export class Panel {
     this._emitChange();
   }
 
-  /** Delete selected elements */
-  deleteSelected() {
+  /** Delete selected elements. Returns Promise (may show confirm dialog for UTree) */
+  async deleteSelected(confirmFn = null) {
     const selected = this.cy.$(':selected');
     if (selected.empty()) {
       showToast('Nothing selected', 'info');
       return;
     }
 
-    this._pushHistory();
+    const graphType = this.template?.graphType || 'DG';
+    const typeInfo = GRAPH_TYPES[graphType];
+
     const nodeLabels = new Set();
     selected.nodes().forEach(n => nodeLabels.add(n.data('label')));
-
     const edgeKeys = new Set();
-    selected.edges().forEach(e => {
-      edgeKeys.add(`${e.data('source')}→${e.data('target')}`);
-    });
+    selected.edges().forEach(e => edgeKeys.add(`${e.data('source')}→${e.data('target')}`));
 
+    // UTree connectivity warning
+    if (typeInfo?.mustBeConnected && confirmFn) {
+      let wouldDisconnect = false;
+      for (const label of nodeLabels) {
+        if (wouldDisconnectOnNodeRemove(this.graph, label)) { wouldDisconnect = true; break; }
+      }
+      if (!wouldDisconnect) {
+        for (const key of edgeKeys) {
+          const [s, t] = key.split('→');
+          if (wouldDisconnectOnEdgeRemove(this.graph, s, t)) { wouldDisconnect = true; break; }
+        }
+      }
+      if (wouldDisconnect) {
+        const ok = await confirmFn('Disconnect Warning', 'Deleting this would disconnect the tree. Proceed anyway?');
+        if (!ok) return;
+      }
+    }
+
+    this._pushHistory();
     this.graph = {
       nodes: this.graph.nodes.filter(n => !nodeLabels.has(n.label)),
       edges: this.graph.edges.filter(e => {
@@ -240,6 +339,7 @@ export class Panel {
     // Push to approval history
     this._approvalHistory.push({
       graph: deepClone(this.graph),
+      baseGraph: this.baseGraph ? deepClone(this.baseGraph) : null,
       timestamp: new Date().toISOString(),
       diffSummary,
     });
@@ -281,6 +381,13 @@ export class Panel {
     this._applyDiffClasses();
     this._updateHeader();
     this._emitChange();
+
+    // Post-merge cycle warning for acyclic graph types
+    const typeInfo = GRAPH_TYPES[this.template?.graphType];
+    if (typeInfo?.acyclic && hasCycle(this.graph, typeInfo.directed)) {
+      showToast(`Warning: merge introduced a cycle in ${typeInfo.label}`, 'warning');
+    }
+
     return { ok: true };
   }
 
@@ -419,7 +526,7 @@ export class Panel {
     for (const node of this.graph.nodes) {
       elements.push({
         group: 'nodes',
-        data: { id: node.label, label: node.label, ...this._flattenProps(node.props, 'p_') },
+        data: { id: node.label, label: node.label, type: node.type || null, ...this._flattenProps(node.props, 'p_') },
       });
     }
 
@@ -430,6 +537,7 @@ export class Panel {
           id: `${edge.source}→${edge.target}`,
           source: edge.source,
           target: edge.target,
+          type: edge.type || null,
           ...this._flattenProps(edge.props, 'p_'),
         },
       });

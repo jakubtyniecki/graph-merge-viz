@@ -2,21 +2,30 @@ import cytoscape from 'cytoscape';
 import fcose from 'cytoscape-fcose';
 import { Panel } from './ui/panel.js';
 import { LayoutManager } from './ui/layout.js';
-import { addNodeDialog, addEdgeDialog, importGraphDialog, confirmDialog, infoDialog, changelogDialog } from './ui/dialogs.js';
-import { setupSession } from './ui/session.js';
+import { addNodeDialog, addEdgeDialog, importGraphDialog, confirmDialog, infoDialog, changelogDialog, changesetSummaryDialog } from './ui/dialogs.js';
+import { setupSession, getSessionTemplate } from './ui/session.js';
 import { setupClipboard } from './ui/clipboard.js';
 import { setupContextMenu } from './ui/context-menu.js';
 import { showToast } from './ui/toast.js';
 import { setupStatusBar } from './ui/status-bar.js';
+import { setupTemplateUI, loadGlobalTemplates, getSelectedTemplateName } from './ui/template-ui.js';
 
 cytoscape.use(fcose);
 
 const panels = new Map();
-let layoutAlgorithm = 'fcose';  // Default layout algorithm
+let layoutAlgorithm = 'fcose';
+
+/** Propagate current session template to all panels */
+function propagateTemplate(template) {
+  for (const panel of panels.values()) {
+    panel.setTemplate(template);
+  }
+}
 
 const layoutManager = new LayoutManager(document.getElementById('app'), {
   onPanelCreate(id, canvasEl) {
-    const panel = new Panel(id, canvasEl);
+    const template = getSessionTemplate();
+    const panel = new Panel(id, canvasEl, template);
     panels.set(id, panel);
     setupContextMenu(panel);
   },
@@ -34,7 +43,6 @@ const layoutManager = new LayoutManager(document.getElementById('app'), {
     const target = panels.get(targetId);
     if (!source || !target) return;
 
-    // Block if source has unapproved changes
     if (source.baseGraph && !source.isClean()) {
       await infoDialog(
         'Merge Blocked',
@@ -72,7 +80,6 @@ const layoutManager = new LayoutManager(document.getElementById('app'), {
   },
 
   onResizeEnd(splitNode) {
-    // Refresh layouts for all panels in the resized split
     const leftIds = layoutManager._allPanelIds(splitNode.children[0]);
     const rightIds = layoutManager._allPanelIds(splitNode.children[1]);
     for (const id of [...leftIds, ...rightIds]) {
@@ -120,6 +127,7 @@ document.getElementById('app').addEventListener('click', async e => {
     }
     case 'undo': panel.undo(); break;
     case 'redo': panel.redo(); break;
+    case 'changeset': changesetSummaryDialog(panel); break;
     case 'changelog': changelogDialog(panel); break;
     case 'refresh':
       panel.cy.resize();
@@ -145,8 +153,17 @@ document.getElementById('add-panel-btn').onclick = () => layoutManager.addPanel(
 // Initialize default layout
 layoutManager.init();
 
-// Setup session management and clipboard
-setupSession(panels, layoutManager);
+// Setup template UI (global templates in header)
+setupTemplateUI((template) => {
+  // When global template is selected, apply to current session panels
+  propagateTemplate(template);
+});
+
+// Setup session management with template change callback
+setupSession(panels, layoutManager, (template) => {
+  propagateTemplate(template);
+});
+
 setupClipboard(() => panels);
 setupStatusBar();
 
@@ -154,7 +171,7 @@ setupStatusBar();
 requestAnimationFrame(() => layoutManager.updateMergeButtonStates(panels));
 
 // Keyboard shortcuts
-document.addEventListener('keydown', e => {
+document.addEventListener('keydown', async e => {
   // Escape: un-zoom panel
   if (e.key === 'Escape' && layoutManager._zoomedPanelId) {
     layoutManager.toggleZoom(layoutManager._zoomedPanelId);
@@ -167,7 +184,6 @@ document.addEventListener('keydown', e => {
     if (activePanel) {
       activePanel.undo();
     } else if (panels.size > 0) {
-      // Fallback to first panel if no active panel
       panels.values().next().value.undo();
     }
   }
@@ -178,7 +194,6 @@ document.addEventListener('keydown', e => {
     if (activePanel) {
       activePanel.redo();
     } else if (panels.size > 0) {
-      // Fallback to first panel if no active panel
       panels.values().next().value.redo();
     }
   }
@@ -190,7 +205,6 @@ layoutSelect.value = layoutAlgorithm;
 layoutSelect.addEventListener('change', e => {
   layoutAlgorithm = e.target.value;
   window.__layoutAlgorithm = layoutAlgorithm;
-  // Re-run layout on all panels
   for (const panel of panels.values()) {
     panel._runLayout();
   }

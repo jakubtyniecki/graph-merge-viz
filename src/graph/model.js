@@ -11,10 +11,10 @@ export const nodeKey = node => node.label;
 export const edgeKey = edge => `${edge.source}→${edge.target}`;
 
 /** Create a node */
-export const createNode = (label, props = {}) => ({ label, props: { ...props } });
+export const createNode = (label, props = {}, type = null) => ({ label, type, props: { ...props } });
 
 /** Create an edge */
-export const createEdge = (source, target, props = {}) => ({ source, target, props: { ...props } });
+export const createEdge = (source, target, props = {}, type = null) => ({ source, target, type, props: { ...props } });
 
 /** Find node by label */
 export const findNode = (graph, label) => graph.nodes.find(n => n.label === label);

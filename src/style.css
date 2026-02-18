@@ -981,3 +981,102 @@ dialog:has(.preview-header) {
 
   .toast { max-width: 100%; }
 }
+
+/* ===== Template UI ===== */
+#template-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#template-controls select,
+#template-controls button {
+  font-size: 12px;
+}
+
+/* Template editor dialog */
+.template-graph-type-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 0 8px;
+}
+
+.template-graph-type-label strong {
+  color: var(--text);
+}
+
+.template-section-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  margin: 10px 0 4px;
+}
+
+.type-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.type-label-input {
+  flex: 1;
+  font-size: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 6px;
+  border-radius: 3px;
+}
+
+.type-color-input {
+  width: 32px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px;
+  cursor: pointer;
+  background: none;
+}
+
+.btn-delete-type {
+  background: none;
+  border: none;
+  color: var(--danger);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  line-height: 1;
+  border-radius: 3px;
+}
+
+.btn-delete-type:hover {
+  background: rgba(244, 67, 54, 0.15);
+}
+
+.btn-add-type {
+  font-size: 11px;
+  padding: 3px 8px;
+  margin-top: 2px;
+  margin-bottom: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.btn-add-type:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Menu divider */
+.menu-divider {
+  margin: 2px 0;
+  border: none;
+  border-top: 1px solid var(--border);
+}
