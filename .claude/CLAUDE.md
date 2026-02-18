@@ -1,450 +1,122 @@
-# Graph Merge Visualizer — Project CLAUDE.md
+# Graph Merge Visualizer — Working Guide
 
-**GitHub Repo:** https://github.com/jakubtyniecki/graph-merge-viz (private)
-**Branch:** master (single branch, keep clean)
-**Last Updated:** 2026-02-18 (UI polish: template modal, panel header actions, icon updates)
-
----
-
-## Project Overview
-
-**Purpose:** Educational web tool for learning graph merge algorithms through interactive visualization.
-
-**Platform:** Raspberry Pi 5, hobby project
-**Stack:** Vanilla JS (ES modules) + Cytoscape.js + Vite + Express.js + LocalStorage
+**Repo:** https://github.com/jakubtyniecki/graph-merge-viz (private, master only)
+**Platform:** Raspberry Pi 5 hobby project — keep it simple, no frameworks.
 
 ---
 
-## Key Architecture
+## Project Orientation
 
-### Recent Changes
+Educational web tool for learning graph merge algorithms. Users create graphs in panels, approve changesets, and merge graphs between panels. Think "git diff/merge for graph data structures." The app runs locally; state is in localStorage.
 
-**2026-02-18: UI Polish — Template Modal, Panel Header Actions, Icon Updates**
-
-1. **Template Management Modal** — `src/ui/template-ui.js` (full rewrite)
-   - Replaced dropdown+hamburger with `templateManagementModal()` — centered dialog with template list
-   - `setupTemplateUI()` no longer takes a callback; global template selection no longer applies to current session
-   - Modal has: list view, Add (inline form with graph type dropdown), Remove (confirm), Edit, Copy, Import, Export
-   - `editTemplateDialog` called with `isSessionTemplate=false` → full specialTypes editing
-
-2. **Panel Header Actions** — `src/ui/layout.js`
-   - Undo (←), Redo (→), Refresh (↻) moved from action bar to panel header (`.panel-header-actions` span)
-   - Action bar (`panel-actions-right`): now only changeset, changelog, import, export, gear
-
-3. **Icon Updates** — `src/ui/layout.js`
-   - Restore: `&#x238C;` (⎌) → `&#x21BA;` (↺)
-   - H-split: `&#x2195;` (↕) → `&#x2261;` (≡)
-   - Undo/Redo in header: `&#x2190;` (←) / `&#x2192;` (→)
-
-4. **Type Enforcement** — `src/ui/dialogs.js`
-   - `addNodeDialog`, `addEdgeDialog`, `editSelectedDialog`: removed `(no type)` option when types exist
-
-5. **Template Dialog Improvements** — `src/ui/dialogs.js`
-   - Placeholders: "Node Type" / "Edge Type" instead of "Type label"
-   - Focus handler selects all text on input focus
-   - `isSessionTemplate=true`: hides delete buttons and Add Type buttons (color/label editing only)
-   - `openDialog` and `closeDialog` are now exported
-
-6. **Other** — `src/ui/session.js`, `src/ui/status-bar.js`, `src/index.html`
-   - `+ Panel` button moved from header to session controls (before `?`)
-   - Status bar compact: `15n 12e 4p 2s` instead of verbose text
-   - Header: `+ Panel` section removed; Template section → `Templates` button
-
-**2026-02-18: Path Tracking + Per-Panel Options**
-
-1. **New Files**
-   - `src/graph/path-tracking.js` — `computePathTags()`, `propagateExclusions()`, `isNodeFullyExcluded()`, `mergeExclusions()`, `formatPathTag()`, `serializeTag()`
-
-2. **Per-Panel Layout Algorithm (Phase 1)**
-   - Removed global `#layout-algo` select from header; `+ Panel` button moved to its own header section
-   - Panel now has `layoutAlgorithm` property (default `'fcose'`), persisted in `getState()`/`setState()`
-   - New `setLayoutAlgorithm(algo)` method; `_runLayout()` uses `this.layoutAlgorithm` instead of `window.__layoutAlgorithm`
-   - Gear icon ⚙ in panel action bar (`data-action="panel-options"`) opens `panelOptionsDialog(panel)`
-   - `panelOptionsDialog` shows layout dropdown + path tracking toggle (for DAG with specialTypes)
-   - Session migration: old sessions with top-level `layoutAlgorithm` propagate to panel states
-
-3. **Template `specialTypes` (Phase 2)**
-   - `defaultTemplate()` and `createTemplate()` now include `specialTypes: []` (ordered node type ID array)
-   - New `setSpecialTypes(template, typeIds)` pure function
-   - Session migration adds `specialTypes: []` to templates that lack it
-
-4. **Path Tracking State (Phase 3)**
-   - Panel properties: `pathTrackingEnabled`, `showExclusions`, `exclusions: {}`, `_pathTags`, `_effectiveExclusions`
-   - History format changed to `{ graph, exclusions }` with backward-compat guard via `_historyGraph()`/`_historyExclusions()`
-   - `approve()` snapshots `exclusions` in approval history entries
-   - `receiveMerge(graph, dir, incomingExclusions, sourceTracked)` and `pasteSubgraph()` accept exclusions params
-   - Clipboard carries `_clipboardExclusions` via `panel.getRelevantExclusions(subgraph)`
-   - Session migration adds tracking fields to old panel states
-
-5. **Visual Integration (Phase 4)**
-   - CSS classes: `.edge-excluded` (dashed), `.edge-all-excluded` (dashed + dimmed), `.node-fully-excluded` (dotted border), `.tracking-hidden` (display:none)
-   - Edge hover tooltip via `.path-tooltip` div appended to `this.container`
-   - Tracking overlay (`.tracking-overlay`) with "Show exclusions" checkbox in bottom-left of canvas
-   - `_applyTrackingVisuals()`, `_applyExclusionVisibility()`, `_ensureTrackingOverlay()`, `_updateTrackingOverlay()`
-
-6. **Exclusion UI (Phase 5)**
-   - Edge context menu: up to 3 individual Exclude/Include items; "Manage Exclusions..." for 4+ tags
-   - Node context menu: "Include All Paths" for fully excluded nodes
-   - `exclusionDialog(panel, edgeKey)`: checkbox list showing all tags, propagated vs. direct
-
-7. **Template Special Types UI (Phase 6)**
-   - `editTemplateDialog(template, onSave, isSessionTemplate)`: new third param
-   - When `isSessionTemplate=true`: specialTypes section is greyed out (locked)
-   - When DAG + has nodeTypes: shows "Path Tracking Types" with checkboxes + up/down ordering buttons
-   - Session's "Edit Template" menu passes `isSessionTemplate=true`
-   - `mergeExclusions()` called in merge/paste to combine source+target exclusions
-
-**2026-02-18: Template System — Typed Nodes/Edges + Graph Constraints**
-
-1. **New Files**
-   - `src/graph/template.js` — `GRAPH_TYPES` constant, `defaultTemplate()`, `createTemplate()`, add/remove/update type functions
-   - `src/graph/constraints.js` — `validateEdgeAdd()`, `wouldCreateCycle()`, `hasCycle()`, `isConnected()`, disconnect checks, undirected duplicate edge check
-   - `src/ui/template-ui.js` — Global template CRUD in header (localStorage key: `graph-merge-templates`), `uniqueName()` utility
-
-2. **Data Model Changes**
-   - Node: `{ label, type: "nt1" | null, props }` — `type` preserved by deepClone/merge/serializer
-   - Edge: `{ source, target, type: "et1" | null, props }`
-   - Session now has `template: { name, graphType, nodeTypes: [{id, label, color}], edgeTypes: [...] }`
-   - Template storage: global templates in `localStorage['graph-merge-templates']`, session template embedded in session data
-
-3. **Template System Architecture**
-   - Global templates: managed in header via `template-ui.js`, selecting applies to current panels
-   - Session template: embedded deep-copy; "New Session" dialog picks starting template; "Edit Template" in session menu
-   - `Panel.setTemplate(template)` rebuilds Cytoscape styles via `cy.style().fromJson(...).update()`
-   - `buildStylesForTemplate(template)` in `styles.js`: appends undirected arrow removal + node/edge type colors to `baseStyles`
-   - Migration: old sessions without `template` get `{ graphType: 'DG', ... }` to preserve directed arrows
-
-4. **Constraint Enforcement**
-   - `addEdge()` in Panel calls `validateEdgeAdd()` — blocks cycles in acyclic types, undirected duplicate edges, self-loops
-   - Post-merge: `hasCycle()` check in `receiveMerge()` → warning toast (not blocked)
-   - UTree deletes: `deleteSelected(confirmFn)` checks `wouldDisconnectOnNodeRemove/EdgeRemove` → warn-but-allow dialog
-   - `confirmFn` passed from `main.js`, `context-menu.js`, and `clipboard.js` key handler
-
-5. **UI Changes**
-   - `addNodeDialog`: type `<select>` if template has nodeTypes
-   - `addEdgeDialog`: type `<select>` if edgeTypes; "Node A/B" labels for undirected types
-   - `editSelectedDialog`: type dropdown (pre-selected to current type) for nodes and edges
-   - `editTemplateDialog(template, onSave)`: interactive editor for node/edge types (label + color picker + delete + add)
-   - `newSessionDialog(globalTemplates)`: name + template selection (replaces `prompt`)
-
-6. **Session Changes**
-   - `setupSession(panels, layoutManager, onTemplateChange)` — new third param callback
-   - "Edit Template" in session ☰ menu → calls `editTemplateDialog` → propagates via `onTemplateChange`
-   - Import: template travels with session; session names use `uniqueName()` to avoid collisions
-
-**2026-02-16: Bug Fixes + Branch Selection Feature**
-
-1. **Fixed Paste Deleting Existing Nodes** (`src/ui/panel.js`, `src/ui/clipboard.js`)
-   - Added `pasteSubgraph()` method — additive-only merge by passing `null` base graph to `mergeGraphs()`
-   - Changed `pasteToPanel()` and `pasteBranchToNode()` to use `pasteSubgraph()` instead of `receiveMerge()`
-   - Fixes deletion logic that treated clipboard subgraph as complete panel state
-
-2. **Fixed Dialog Positioning** (`src/ui/dialogs.js`, `src/ui/context-menu.js`, `src/main.js`)
-   - All dialog functions now receive `panelEl` as parameter for proper centering
-   - Updated: `addNodeDialog`, `addEdgeDialog`, `editSelectedDialog`, paste confirmations, `confirmClose`
-   - Dialogs now center on affected panel instead of viewport
-
-3. **Added "Select Branch" Feature** (`src/ui/panel.js`, `src/ui/clipboard.js`, `src/ui/context-menu.js`)
-   - New `selectBranch()` method in Panel — selects all ancestors + connecting edges
-   - Context menu: "Select Branch from X" option for each node
-   - Auto-select on Copy Branch — branch is highlighted when copied
-
-**2026-02-16: Merge Strategy Overhaul + Panel Features**
-
-1. **Simplified Merge Strategy** (`src/ui/panel.js`)
-   - Removed incoming baseline param from `receiveMerge()` — now uses target's own `baseGraph` for deletion detection
-   - Simplified from 5 cases to 2: empty target (auto-approve) vs normal merge
-   - Source must be clean (approved) before merging — blocked with modal if dirty
-   - Target can receive merges when dirty (no directional lock)
-   - Always diffs against target's last approved state, not incoming baseline
-
-2. **Panel Management Features** (`src/ui/layout.js`)
-   - **Rename panels**: Click panel name → dialog → updates in header & merge buttons
-   - **Add panel**: `+ Panel` button in header → appends new panel to right (70/30 split)
-   - **Zoom panel**: Click `⤢` button or press Escape → tmux-style zoom (only renders zoomed panel)
-   - **Split icons**: Changed to `↔` (side-by-side) and `↕` (top/bottom)
-   - **Zone-based merge gutters**: Buttons align to panel midpoints in complex layouts
-
-3. **Data Model Changes**
-   - Panel nodes now have optional `name` field: `{ type: "panel", id: "1", name: "My Graph" }`
-   - Merge buttons use panel names instead of IDs
-   - Layout tree serialization includes panel names
-
-**2026-02-13: Dynamic Layout & Merge Button Redesign**
-
-1. **Recursive Split Tree Layout** (`src/ui/layout.js`)
-   - Replaces static 3-col/4-panel grid with dynamic split tree
-   - Default: 2 panels side-by-side (vertical split)
-   - Users can split (h/v) and close panels
-   - Panel IDs: simple numbers (1, 2, 3...) instead of 1.1, 2.1
-
-2. **Merge Buttons Between Adjacent Panels**
-   - In resize gutter: push/pull buttons between sibling panels
-   - Only appears between sibling panels in tree
-   - Draggable resize handle in same gutter
-
-3. **Session Persistence**
-   - Layout tree saved with each session
-   - Old format (X.Y panel IDs) auto-migrated to new (1, 2, 3...)
-   - Full state restoration on session switch
-
-### Architecture Decisions
-
-- **Functional Core**: Pure functions in `src/graph/` (model, diff, merge, serializer)
-- **Imperative Shell**: UI layer (`src/ui/`) handles DOM, Cytoscape, localStorage
-- **Immutability**: All graph operations return new objects (no mutations)
-- **Event Delegation**: Panel action buttons wired via `#app` delegation
-- **State Preservation**: Layout manager saves/restores panel states during resize
+Stack: Vanilla JS ES modules + Cytoscape.js (rendering) + Vite (build/HMR) + Express (prod server).
 
 ---
 
-## File Structure
+## Architecture
 
-```
-src/
-├── index.html              # Minimal: header + empty #app + toast
-├── main.js                 # Entry: init LayoutManager, wire events, propagateTemplate()
-├── style.css               # Dark theme, split containers, merge gutters, template UI
-│
-├── graph/                  # Pure data layer (no DOM/side effects)
-│   ├── model.js           # Graph CRUD: createGraph, addNode(label, props, type), etc.
-│   ├── diff.js            # computeDiff(base, current) → DiffEntry[]
-│   ├── merge.js           # mergeGraphs(target, incoming) → Graph
-│   ├── serializer.js      # JSON import/export + validation (preserves type field)
-│   ├── template.js        # GRAPH_TYPES, defaultTemplate(), createTemplate(), type CRUD, setSpecialTypes()
-│   ├── constraints.js     # validateEdgeAdd(), wouldCreateCycle(), hasCycle(), isConnected()
-│   └── path-tracking.js  # computePathTags(), propagateExclusions(), mergeExclusions(), formatPathTag(), serializeTag()
-│
-├── ui/                    # Impure UI layer (DOM, Cytoscape, localStorage)
-│   ├── layout.js          # LayoutManager: recursive split tree + render
-│   ├── panel.js           # Panel class: template property, setTemplate(), constraint-aware addEdge/deleteSelected
-│   ├── dialogs.js         # Modal dialogs + editTemplateDialog() + newSessionDialog()
-│   ├── session.js         # LocalStorage: sessions + template, setupSession(panels, lm, onTemplateChange)
-│   ├── template-ui.js     # Global template CRUD in header (localStorage: graph-merge-templates)
-│   ├── clipboard.js       # Ctrl+C/V: copy/paste subgraph
-│   └── toast.js           # Notifications: showToast()
-│
-└── cytoscape/
-    └── styles.js          # baseStyles + buildStylesForTemplate(template)
-```
+**Functional core / imperative shell.** Everything in `src/graph/` is pure functions returning new objects (no mutation, no DOM). Everything in `src/ui/` handles DOM, Cytoscape, and localStorage. This separation makes graph logic fully unit-testable without a browser.
 
 ---
 
-## Critical Implementation Details
+## Dev Commands
 
-### LayoutManager (src/ui/layout.js)
-
-**Data Structure:**
-```javascript
-LayoutNode =
-  | { type: "panel", id: string, name?: string }
-  | { type: "split", direction: "h"|"v", children: [LayoutNode, LayoutNode], sizes: [num, num] }
-```
-
-**Key Methods:**
-- `init()` — Create default 2-panel layout
-- `splitPanel(id, dir)` — Replace panel with split node + new panel (preserves name)
-- `closePanel(id)` — Remove panel, promote sibling (clears zoom if closed panel is zoomed)
-- `addPanel()` — Wrap tree in new vertical split with 70/30 ratio
-- `toggleZoom(id)` — Show only zoomed panel (tmux-style), or restore normal layout
-- `render()` — Destroy all panels, rebuild DOM, recreate panels (preserves state via getState/setState callbacks)
-  - In zoom mode: only renders zoomed panel (saves memory)
-- `getLayout() / setLayout()` — Serialize/restore for sessions (includes panel names)
-
-**Zone-Based Merge Gutters:**
-- `_getZones(childNode, gutterDir)` — Returns array of `{ panels: [{id, name}], size: % }` for alignment
-- Perpendicular splits create separate zones (buttons align to each panel's midpoint)
-- Parallel splits create one zone (all buttons centered)
-
-**State Preservation:**
-- When rendering, LayoutManager calls `getState(id)` before destroying old panels
-- After creating new panels, calls `setState(id, state)` to restore
-- Passed as callbacks in constructor from main.js
-
-### Panel Class (src/ui/panel.js)
-
-**Key Lifecycle:**
-1. `new Panel(id, canvasEl)` — Create Cytoscape instance in container
-2. `getState()` — Return { graph, baseGraph, mergeDirection, lastApproval }
-3. `setState(state)` — Restore state + re-sync Cytoscape + re-apply diffs
-4. `receiveMerge(incomingGraph, direction)` — Apply merge logic (2 cases: empty target vs normal merge)
-5. `approve()` — Clear diffs, snapshot baseGraph
-6. `isClean()` — Public method to check if panel has no pending changes (used by main.js for merge blocking)
-
-**Merge Logic (Simplified):**
-- **Case 1**: Target empty → copy incoming, auto-approve (no diff)
-- **Case 2**: Normal merge → use target's own `baseGraph` as 3rd arg to `mergeGraphs()` for deletion detection
-- Source-dirty check now in `main.js` (blocks with `infoDialog` before calling `receiveMerge`)
-- No directional lock — target can receive merges from any direction when dirty
-
-**Diff Visualization:**
-- `computeDiff(baseGraph, currentGraph)` creates DiffEntry[] for changes
-- `_applyDiffClasses()` adds `.diff-added` / `.diff-removed` / `.diff-modified`
-- Removed elements rendered as "ghost" nodes/edges (semi-transparent, dashed)
-
-### Session Management (src/ui/session.js)
-
-**Storage Format:**
-```json
-{
-  "layout": { "tree": LayoutNode, "nextId": 3 },
-  "panels": { "1": PanelState, "2": PanelState },
-  "savedAt": "ISO timestamp"
-}
-```
-
-**Migration:**
-- Old format (state with X.Y keys) auto-detected and converted
-- Converts to 2-panel vertical split with first 2 old panels mapped to 1, 2
-- New sessions start with fresh 2-panel layout
-
----
-
-## Development Workflow
-
-### Setup
 ```bash
-npm install          # Install dependencies
-npm run dev          # Start Vite dev server (http://0.0.0.0:5173 + HMR)
-npm run build        # Build for production → dist/
-npm start            # Serve dist/ via Express (http://0.0.0.0:3000)
+npm run dev          # Vite dev server on :5173 with HMR
+npm run build        # Production build → dist/
+npm start            # Serve dist/ on :3000 via Express
+npm test             # Run Vitest unit tests
+npm run test:watch   # Watch mode
+npm run test:coverage  # Coverage report (must stay >70%)
+npm run test:e2e     # Playwright E2E (auto-starts dev server)
 ```
 
-### Environment
-- **Node.js:** v20+
-- **Vite HMR:** Enabled for all .js/.css changes
-- **Tailscale:** Configured in vite.config.js for allowedHosts
+---
 
-### Git Workflow
-- Single `master` branch
-- Commit frequently with clear messages
-- Always push to origin/master
-- `.gitignore`: node_modules/, dist/, package-lock.json, .env, logs
+## Key Conventions
+
+- **Immutable graph ops** — all `src/graph/` functions return new graphs; never mutate inputs
+- **Event delegation** — panel action buttons wired in `main.js` via `#app` listener
+- **Single dialog element** — `openDialog()/closeDialog()` in `dialogs.js` share one `<dialog>` per panel
+- **Panel state round-trip** — `panel.getState()` / `panel.setState()` preserve Cytoscape state across `render()`
+- **Templates travel with sessions** — session has embedded template copy; global templates are separate
+- **`panel-change` event** — emit this custom event whenever session state should auto-save
 
 ---
 
-## Testing & Verification
+## TDD Directive (mandatory)
 
-### Manual Test Checklist
-1. `npm run dev` → 2 panels visible side by side
-2. Split panel (click ⬓/⬒) → see new panel + merge gutter
-3. Close panel (click ✕) → promote sibling
-4. Add nodes/edges in panel → green diff colors
-5. Approve → diffs clear
-6. Merge button (>> / <<) → push/pull graph
-7. Drag resize handle → smooth resize
-8. Save session → refresh → layout + state restored
-9. Switch session → old layout/state restored
-10. New session → fresh 2 panels
+For any change to `src/graph/**`: **write or update tests first**, then implement.
 
-### Known Limitations
-- Performance: ~500 nodes max (Cytoscape rendering limit)
-- No undo/redo yet
-- Properties are strings only (no nested objects)
-- Mobile layout not optimized
-- No multi-user collaboration
+```bash
+npm test                    # run before committing graph/ changes
+npm run test:coverage       # verify >70% coverage maintained
+```
+
+E2E tests catch UI regressions — run `npm run test:e2e` after layout/dialog changes.
 
 ---
 
-## Debugging Tips
+## Important Decisions
 
-**Browser Console:**
+- **No framework** — vanilla JS has zero build complexity and loads instantly on RPi5
+- **LocalStorage only** — no backend, no auth; simplicity over durability
+- **Cytoscape.js** — best JS graph rendering lib; layout algorithms built-in
+- **Single master branch** — no PRs, commit directly, keep history clean
+- **dist/ not tracked** — gitignored; deploy from source
+
+---
+
+## Debugging Cheatsheet
+
 ```javascript
-window.__panels      // Map of active panels
-window.__layout      // LayoutManager instance
-window.__panels.get('1').cy   // Cytoscape instance for panel 1
-window.__panels.get('1').graph // Current graph data
+// Browser console:
+window.__panels          // Map<id, Panel> of active panels
+window.__layout          // LayoutManager instance
+window.__panels.get('1').cy      // Cytoscape instance
+window.__panels.get('1').graph   // Current graph data
+window.__panels.get('1').baseGraph  // Last approved snapshot
 ```
 
-**Common Issues:**
-- **Panels disappear on resize:** Check LayoutManager.render() state preservation
-- **Diffs not showing:** Verify _applyDiffClasses() runs after merge
-- **Session not restoring:** Check storage format migration in restoreSession()
-- **Merge buttons missing:** Ensure merge gutter renders between split siblings only
+Common issues: panels disappear on resize → check `render()` state callbacks; diffs not showing → verify `_applyDiffClasses()`; dialog invisible after reopen → ensure `closeDialog()` never sets `display:none`.
 
 ---
 
-## Future Ideas
+## Common Tasks
 
-### High Priority
-1. Undo/redo (leverage immutable graph history)
-2. Better error messages for merge conflicts
-3. Graph templates (tree, DAG, cycle)
-4. Search/filter nodes by property
-
-### Medium Priority
-1. Multi-select node operations
-2. Export to SVG/PNG
-3. Keyboard shortcuts display
-4. Accessibility improvements (ARIA, keyboard nav)
-
-### Low Priority
-1. Nested properties (JSON objects, not strings)
-2. Edge labels on canvas
-3. Collaborative editing (WebSocket)
-4. Different merge algorithms
+| Task | Where |
+|------|-------|
+| Add panel action button | `LayoutManager._renderPanel()` + wire in `main.js` |
+| Add new dialog | `src/ui/dialogs.js` using `openDialog(panelEl)` pattern |
+| Modify merge button layout | `LayoutManager._renderMergeGutter()` |
+| Add session auto-save trigger | Dispatch `panel-change` CustomEvent |
+| Change default panel layout | `LayoutManager.init()` |
+| Add graph constraint | `src/graph/constraints.js` + call from `panel.addEdge()` |
 
 ---
 
-## Important Reminders for Future You
+## Files to Know
 
-1. **Always update SPEC.md + CLAUDE.md together** — SPEC.md is the source of truth for requirements; CLAUDE.md is implementation notes
-   - **Update SPEC.md when:** Functional requirements change, new features are planned, success criteria shift
-   - **Update CLAUDE.md when:** Implementation details change, architecture patterns used, debugging insights discovered
-
-2. **SPEC.md format:**
-   - Keep it pure: functional + non-functional requirements, architecture, design decisions
-   - No implementation details (file names, function names, code snippets)
-   - Document what the app should do, not how it does it
-   - Update whenever user intent or application capability changes
-
-3. **CLAUDE.md format:**
-   - Project-specific working notes for handover to future sessions
-   - File structure, critical methods, debugging tips
-   - Document how you implemented things, not what they do
-   - Keep this as the "working memory" for quick context when picking up the project
-
-4. **Test layout changes thoroughly** — split tree is core. Any render changes can break state preservation.
-
-4. **Session format is critical** — migrations must be backwards-compatible. Test old sessions still load.
-
-5. **Keep it simple** — resist adding framework/library dependencies. Vanilla JS has worked well.
-
-6. **Push frequently** to https://github.com/jakubtyniecki/graph-merge-viz — single branch keeps it simple.
-
-7. **When stuck** — check browser console, verify DOM structure matches LayoutManager output, trace through render() call stack.
+```
+src/main.js              # Entry: wires all events, initializes layout + session
+src/ui/layout.js         # LayoutManager: split tree, panel render, merge gutters
+src/ui/panel.js          # Panel class: Cytoscape wrapper, merge/approve/history
+src/ui/dialogs.js        # All modal dialogs (openDialog/closeDialog pattern)
+src/ui/session.js        # LocalStorage: save/load/switch sessions
+src/graph/model.js       # createGraph/addNode/addEdge/removeNode... (pure)
+src/graph/merge.js       # mergeGraphs(target, incoming, base?) (pure)
+src/graph/diff.js        # computeDiff(base, current) → DiffEntry[] (pure)
+src/graph/template.js    # GRAPH_TYPES, createTemplate, type CRUD (pure)
+src/graph/constraints.js # validateEdgeAdd, hasCycle, isConnected (pure)
+src/graph/path-tracking.js # computePathTags, propagateExclusions (pure)
+src/style.css            # Dark theme; panel/gutter/dialog/diff/tracking CSS
+tests/unit/graph/        # Vitest unit tests (one file per graph/ module)
+tests/e2e/               # Playwright E2E tests
+docs/plans/              # Implementation plans (historical record)
+.claude/SPEC.md          # Full feature specification
+.claude/TODO.md          # Bugs + backlog
+```
 
 ---
 
-## Quick Reference: Common Tasks
-
-### Add New Panel Action Button
-1. Add button HTML in LayoutManager._renderPanel()
-2. Wire click handler in main.js event delegation
-3. Call panel method (e.g., panel.clearGraph())
-
-### Change Default Layout
-Edit LayoutManager.init() to modify tree structure (only 2 panels currently)
-
-### Modify Merge Button Format
-Edit LayoutManager._renderMergeGutter() arrow symbols/text
-
-### Add Session Auto-Save Trigger
-Listen for 'panel-change' custom event (already set up, just emit when needed)
-
-### Resize Gutter Styling
-Edit .merge-gutter / .resize-handle / .merge-btn in style.css
-
----
-
----
-
-## References
-
-- **SPEC.md** — Requirements specification (what the app should do)
-- **README.md** — User-facing documentation
-- **GitHub:** https://github.com/jakubtyniecki/graph-merge-viz
-
----
-
-Last worked on: **2026-02-18** — Template system: typed nodes/edges, graph constraints (DAG/UTree/Forest/UCG/DG), global template management in header, session template editing.
+*See `.claude/SPEC.md` for full feature specification and data models.*
