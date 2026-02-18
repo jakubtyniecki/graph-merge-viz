@@ -6,12 +6,12 @@
  *   | { type: "split", direction: "h" | "v", children: [LayoutNode, LayoutNode], sizes: [number, number] }
  */
 
-import { renameDialog } from './dialogs.js';
+import { renameDialog, infoDialog, scopeNodePickerDialog, addMergeButtonDialog } from './dialogs.js';
 
 const MIN_PANEL_SIZE_PX = 200;
 
 export class LayoutManager {
-  constructor(rootEl, { onPanelCreate, onPanelDestroy, onMerge, getState, setState, confirmClose, onResizeEnd }) {
+  constructor(rootEl, { onPanelCreate, onPanelDestroy, onMerge, getState, setState, confirmClose, onResizeEnd, getPanels }) {
     this.rootEl = rootEl;
     this.onPanelCreate = onPanelCreate;
     this.onPanelDestroy = onPanelDestroy;
@@ -20,11 +20,32 @@ export class LayoutManager {
     this._setState = setState || null;
     this._confirmClose = confirmClose || null;
     this._onResizeEnd = onResizeEnd || null;
+    this._getPanels = getPanels || null;
     this.nextId = 1;
     this.tree = null;
     this._zoomedPanelId = null;
     this._zoomSavedStates = new Map();
     this.mergeStrategies = {};
+    this.mergeButtonLists = {};      // { gutterKey: [{source, target}, ...] }
+    this._gutterSplitNodes = {};     // { gutterKey: splitNode } — runtime cache for targeted re-renders
+  }
+
+  /** Get strategy object for a key, with backward compat for string values */
+  _getStrategy(key) {
+    const val = this.mergeStrategies[key];
+    if (!val) return { strategy: 'mirror', scopeNodes: [] };
+    if (typeof val === 'string') return { strategy: val, scopeNodes: [] };
+    return val;
+  }
+
+  /** Get badge text for a strategy name */
+  _strategyBadge(strategy) {
+    switch (strategy) {
+      case 'push': return '(P)';
+      case 'scoped': return '(S)';
+      case 'none': return '(N)';
+      default: return '(M)';
+    }
   }
 
   /** Initialize with default 2-panel split (vertical on wide, horizontal on narrow) */
@@ -44,7 +65,7 @@ export class LayoutManager {
 
   /** Get layout for serialization */
   getLayout() {
-    return { tree: this.tree, nextId: this.nextId, mergeStrategies: this.mergeStrategies };
+    return { tree: this.tree, nextId: this.nextId, mergeStrategies: this.mergeStrategies, mergeButtonLists: this.mergeButtonLists };
   }
 
   /** Restore layout from saved data */
@@ -52,6 +73,7 @@ export class LayoutManager {
     this.tree = layout.tree;
     this.nextId = layout.nextId;
     this.mergeStrategies = layout.mergeStrategies || {};
+    this.mergeButtonLists = layout.mergeButtonLists || {};
     this.render();
   }
 
@@ -97,6 +119,13 @@ export class LayoutManager {
 
     if (this._zoomedPanelId === panelId) {
       this._zoomedPanelId = null;
+    }
+
+    // Clean up any merge button lists referencing the removed panel
+    for (const key of Object.keys(this.mergeButtonLists)) {
+      this.mergeButtonLists[key] = this.mergeButtonLists[key].filter(
+        b => b.source !== panelId && b.target !== panelId
+      );
     }
 
     this.tree = this._removePanel(this.tree, panelId);
@@ -348,16 +377,24 @@ export class LayoutManager {
     return node.name || `Panel ${node.id}`;
   }
 
-  /** Build merge gutter with zone-overlap buttons and resize handle */
-  _renderMergeGutter(splitNode) {
-    const isVertical = splitNode.direction === 'v';
-    const gutter = document.createElement('div');
-    gutter.className = 'merge-gutter';
+  /** Get display name for a panel by ID (looks up tree at call time) */
+  _getPanelName(id) {
+    const node = this._findPanelNode(this.tree, id);
+    return node ? this._panelName(node) : `Panel ${id}`;
+  }
 
+  /** Compute a stable key for a gutter based on panel IDs on each side */
+  _gutterKey(splitNode) {
+    const left = this._allPanelNodes(splitNode.children[0]).map(p => p.id).sort().join(',');
+    const right = this._allPanelNodes(splitNode.children[1]).map(p => p.id).sort().join(',');
+    return `${left}|${right}`;
+  }
+
+  /** Compute the default merge button list for a split node (push + pull for each adjacent zone pair) */
+  _defaultButtons(splitNode) {
     const leftZones = this._getZones(splitNode.children[0], splitNode.direction, 'first');
     const rightZones = this._getZones(splitNode.children[1], splitNode.direction, 'second');
 
-    // Convert zones to offset ranges
     const toRanges = zones => {
       let offset = 0;
       return zones.map(z => {
@@ -370,76 +407,160 @@ export class LayoutManager {
     const leftRanges = toRanges(leftZones);
     const rightRanges = toRanges(rightZones);
 
-    // Collect all breakpoints and create segments
     const breakpoints = new Set([0, 100]);
     for (const r of [...leftRanges, ...rightRanges]) {
       breakpoints.add(r.start);
       breakpoints.add(r.end);
     }
     const sorted = [...breakpoints].sort((a, b) => a - b);
-
     const findZone = (ranges, mid) => ranges.find(r => r.start <= mid && mid < r.end);
+
+    const buttons = [];
+    const seen = new Set();
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const segMid = (sorted[i] + sorted[i + 1]) / 2;
+      const leftZone = findZone(leftRanges, segMid);
+      const rightZone = findZone(rightRanges, segMid);
+      if (!leftZone || !rightZone) continue;
+      if (leftZone.slot !== null && rightZone.slot !== null && leftZone.slot !== rightZone.slot) continue;
+
+      for (const leftPanel of leftZone.panels) {
+        for (const rightPanel of rightZone.panels) {
+          const pushKey = `${leftPanel.id}→${rightPanel.id}`;
+          const pullKey = `${rightPanel.id}→${leftPanel.id}`;
+          if (!seen.has(pushKey)) { seen.add(pushKey); buttons.push({ source: leftPanel.id, target: rightPanel.id }); }
+          if (!seen.has(pullKey)) { seen.add(pullKey); buttons.push({ source: rightPanel.id, target: leftPanel.id }); }
+        }
+      }
+    }
+
+    return buttons;
+  }
+
+  /** Get button list for a gutter — initializes from defaults if not yet customized */
+  _getButtonList(splitNode) {
+    const key = this._gutterKey(splitNode);
+    if (!this.mergeButtonLists[key]) {
+      this.mergeButtonLists[key] = this._defaultButtons(splitNode);
+    }
+    return this.mergeButtonLists[key];
+  }
+
+  /** Replace just the gutter DOM element without re-creating panels */
+  _rerenderGutter(gutterKey) {
+    const splitNode = this._gutterSplitNodes[gutterKey];
+    if (!splitNode) return;
+    const old = this.rootEl.querySelector(`.merge-gutter[data-gutter-key="${CSS.escape(gutterKey)}"]`);
+    if (old) old.replaceWith(this._renderMergeGutter(splitNode));
+  }
+
+  _renderMergeGutter(splitNode) {
+    const isVertical = splitNode.direction === 'v';
+    const gutter = document.createElement('div');
+    gutter.className = 'merge-gutter';
+
+    // Store key + node for targeted re-renders
+    const gutterKey = this._gutterKey(splitNode);
+    gutter.dataset.gutterKey = gutterKey;
+    this._gutterSplitNodes[gutterKey] = splitNode;
+
+    const list = this._getButtonList(splitNode);
+    const leftPanelIds = new Set(this._allPanelNodes(splitNode.children[0]).map(p => p.id));
 
     const pushArrow = isVertical ? '\u25B6\u25B6' : '\u25BC\u25BC';
     const pullArrow = isVertical ? '\u25C0\u25C0' : '\u25B2\u25B2';
 
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const segStart = sorted[i];
-      const segEnd = sorted[i + 1];
-      const segMid = (segStart + segEnd) / 2;
+    const zoneEl = document.createElement('div');
+    zoneEl.className = 'merge-zone merge-zone-flat';
 
-      const leftZone = findZone(leftRanges, segMid);
-      const rightZone = findZone(rightRanges, segMid);
-      if (!leftZone || !rightZone) continue;
-
-      // Skip corner pairings: if both zones have non-null slots that don't match
-      if (leftZone.slot !== null && rightZone.slot !== null && leftZone.slot !== rightZone.slot) {
-        continue;
-      }
-
-      const zoneEl = document.createElement('div');
-      zoneEl.className = 'merge-zone';
-      if (isVertical) {
-        zoneEl.style.top = `${segStart}%`;
-        zoneEl.style.height = `${segEnd - segStart}%`;
-      } else {
-        zoneEl.style.left = `${segStart}%`;
-        zoneEl.style.width = `${segEnd - segStart}%`;
-      }
-
-      // Only pair panels from overlapping zones
-      for (const leftPanel of leftZone.panels) {
-        for (const rightPanel of rightZone.panels) {
-          // Push: left → right
-          const pushKey = `${leftPanel.id}→${rightPanel.id}`;
-          const pushStrat = this.mergeStrategies[pushKey] || 'mirror';
-          const pushBtn = document.createElement('button');
-          pushBtn.className = 'merge-btn';
-          pushBtn.innerHTML = `<span>${leftPanel.name} ${pushArrow} ${rightPanel.name}</span><span class="merge-strategy-badge">${pushStrat === 'sync' ? '(S)' : '(M)'}</span>`;
-          pushBtn.title = `Push ${leftPanel.name} into ${rightPanel.name}. Right-click to change strategy.`;
-          pushBtn.dataset.mergeSource = leftPanel.id;
-          pushBtn.dataset.mergeTarget = rightPanel.id;
-          pushBtn.onclick = () => this.onMerge(leftPanel.id, rightPanel.id);
-          pushBtn.addEventListener('contextmenu', e => { e.preventDefault(); this._showStrategyPicker(pushKey, pushBtn); });
-          zoneEl.appendChild(pushBtn);
-
-          // Pull: right → left
-          const pullKey = `${rightPanel.id}→${leftPanel.id}`;
-          const pullStrat = this.mergeStrategies[pullKey] || 'mirror';
-          const pullBtn = document.createElement('button');
-          pullBtn.className = 'merge-btn';
-          pullBtn.innerHTML = `<span>${leftPanel.name} ${pullArrow} ${rightPanel.name}</span><span class="merge-strategy-badge">${pullStrat === 'sync' ? '(S)' : '(M)'}</span>`;
-          pullBtn.title = `Pull ${rightPanel.name} into ${leftPanel.name}. Right-click to change strategy.`;
-          pullBtn.dataset.mergeSource = rightPanel.id;
-          pullBtn.dataset.mergeTarget = leftPanel.id;
-          pullBtn.onclick = () => this.onMerge(rightPanel.id, leftPanel.id);
-          pullBtn.addEventListener('contextmenu', e => { e.preventDefault(); this._showStrategyPicker(pullKey, pullBtn); });
-          zoneEl.appendChild(pullBtn);
-        }
-      }
-
-      gutter.appendChild(zoneEl);
+    if (list.length === 0) {
+      const emptyEl = document.createElement('div');
+      emptyEl.className = 'merge-zone-empty';
+      emptyEl.textContent = 'No merge buttons';
+      zoneEl.appendChild(emptyEl);
     }
+
+    list.forEach((btn, idx) => {
+      const { source: sourceId, target: targetId } = btn;
+      const key = `${sourceId}→${targetId}`;
+      const stratObj = this._getStrategy(key);
+      const arrow = leftPanelIds.has(sourceId) ? pushArrow : pullArrow;
+      const sourceName = this._getPanelName(sourceId);
+      const targetName = this._getPanelName(targetId);
+
+      const mergeBtn = document.createElement('button');
+      mergeBtn.className = 'merge-btn';
+      if (stratObj.strategy === 'none') mergeBtn.classList.add('merge-btn-disabled');
+      mergeBtn.innerHTML = `<span class="merge-btn-text">${sourceName} ${arrow} ${targetName}</span><span class="merge-strategy-badge">${this._strategyBadge(stratObj.strategy)}</span>`;
+      mergeBtn.title = `Merge ${sourceName} into ${targetName}. Right-click to change strategy or delete.`;
+      mergeBtn.dataset.mergeSource = sourceId;
+      mergeBtn.dataset.mergeTarget = targetId;
+      mergeBtn.onclick = () => {
+        if (this._getStrategy(key).strategy === 'none') {
+          infoDialog('Merge Disabled', 'This merge direction is set to None.');
+          return;
+        }
+        this.onMerge(sourceId, targetId);
+      };
+      mergeBtn.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        this._showStrategyPicker(key, mergeBtn, gutterKey);
+      });
+
+      const btnRow = document.createElement('div');
+      btnRow.className = 'merge-btn-row';
+      btnRow.draggable = true;
+
+      const dragHandle = document.createElement('span');
+      dragHandle.className = 'merge-btn-drag';
+      dragHandle.textContent = '\u22EE\u22EE';  // ⋮⋮
+      dragHandle.title = 'Drag to reorder';
+
+      btnRow.appendChild(dragHandle);
+      btnRow.appendChild(mergeBtn);
+
+      // HTML5 drag-and-drop reordering
+      btnRow.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', String(idx));
+        e.dataTransfer.effectAllowed = 'move';
+        btnRow.classList.add('dragging');
+      });
+      btnRow.addEventListener('dragend', () => btnRow.classList.remove('dragging'));
+      btnRow.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+      btnRow.addEventListener('drop', e => {
+        e.preventDefault();
+        const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
+        const toIdx = idx;
+        if (fromIdx === toIdx) return;
+        const btnList = this.mergeButtonLists[gutterKey];
+        if (!btnList) return;
+        const item = btnList.splice(fromIdx, 1)[0];
+        btnList.splice(fromIdx < toIdx ? toIdx - 1 : toIdx, 0, item);
+        this._rerenderGutter(gutterKey);
+        window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+      });
+
+      zoneEl.appendChild(btnRow);
+    });
+
+    // + button to add arbitrary merge buttons
+    const addBtn = document.createElement('button');
+    addBtn.className = 'merge-btn-add';
+    addBtn.textContent = '+';
+    addBtn.title = 'Add merge button';
+    addBtn.onclick = () => {
+      const allPanelInfos = this._allPanelNodes(this.tree);
+      const currentList = this.mergeButtonLists[gutterKey] || [];
+      addMergeButtonDialog(allPanelInfos, currentList, ({ source, target }) => {
+        this.mergeButtonLists[gutterKey].push({ source, target });
+        this._rerenderGutter(gutterKey);
+        window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+      });
+    };
+    zoneEl.appendChild(addBtn);
+
+    gutter.appendChild(zoneEl);
 
     // Resize handle
     const handle = document.createElement('div');
@@ -597,43 +718,96 @@ export class LayoutManager {
     });
   }
 
-  /** Show a floating strategy picker near the given merge button */
-  _showStrategyPicker(key, anchorBtn) {
+  /** Show a floating strategy picker near the given merge button.
+   *  gutterKey is required for the Delete option to work. */
+  _showStrategyPicker(key, anchorBtn, gutterKey) {
     document.querySelector('.merge-strategy-picker')?.remove();
-    const current = this.mergeStrategies[key] || 'mirror';
+    const currentObj = this._getStrategy(key);
+    const current = currentObj.strategy;
+
     const picker = document.createElement('div');
     picker.className = 'merge-strategy-picker';
     const rect = anchorBtn.getBoundingClientRect();
-    picker.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;z-index:1000`;
-    picker.innerHTML = `
-      <div class="strategy-option${current === 'mirror' ? ' active' : ''}" data-strat="mirror">${current === 'mirror' ? '✓ ' : ''}Mirror (M)</div>
-      <div class="strategy-option${current === 'sync' ? ' active' : ''}" data-strat="sync">${current === 'sync' ? '✓ ' : ''}Sync (S)</div>
+    picker.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;z-index:10000`;
+
+    const options = [
+      { strat: 'mirror', label: 'Mirror (M)' },
+      { strat: 'push',   label: 'Push (P)' },
+      { strat: 'scoped', label: 'Scoped (S)' },
+      { strat: 'none',   label: 'None (N)' },
+    ];
+    picker.innerHTML = options.map(o =>
+      `<div class="strategy-option${current === o.strat ? ' active' : ''}" data-strat="${o.strat}">${current === o.strat ? '✓ ' : ''}${o.label}</div>`
+    ).join('') + `
+      <hr class="strategy-separator">
+      <div class="strategy-option strategy-delete" data-strat="__delete__">&#x1F5D1; Delete</div>
     `;
+
     document.body.appendChild(picker);
+
+    const updateBtn = () => {
+      const stratObj = this._getStrategy(key);
+      const badge = anchorBtn.querySelector('.merge-strategy-badge');
+      if (badge) badge.textContent = this._strategyBadge(stratObj.strategy);
+      anchorBtn.classList.toggle('merge-btn-disabled', stratObj.strategy === 'none');
+    };
+
+    const dismiss = e => {
+      if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('mousedown', dismiss); }
+    };
+
     picker.querySelectorAll('.strategy-option').forEach(opt => {
       opt.onclick = e => {
         e.stopPropagation();
         const strat = opt.dataset.strat;
+        picker.remove();
+        document.removeEventListener('mousedown', dismiss);
+
+        if (strat === '__delete__') {
+          // Remove this button from the list and re-render gutter
+          if (gutterKey && this.mergeButtonLists[gutterKey]) {
+            const idx = this.mergeButtonLists[gutterKey].findIndex(b => `${b.source}→${b.target}` === key);
+            if (idx !== -1) this.mergeButtonLists[gutterKey].splice(idx, 1);
+            this._rerenderGutter(gutterKey);
+            window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+          }
+          return;
+        }
+
         if (strat === 'mirror') {
           delete this.mergeStrategies[key];
         } else {
-          this.mergeStrategies[key] = strat;
+          this.mergeStrategies[key] = { strategy: strat, scopeNodes: currentObj.scopeNodes || [] };
         }
-        const badge = anchorBtn.querySelector('.merge-strategy-badge');
-        if (badge) badge.textContent = strat === 'sync' ? '(S)' : '(M)';
-        picker.remove();
-        window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+
+        if (strat === 'scoped') {
+          // Open scope node picker to select target nodes
+          const targetId = key.split('→')[1];
+          const panelsMap = this._getPanels ? this._getPanels() : null;
+          const targetPanel = panelsMap?.get(targetId);
+          if (targetPanel) {
+            scopeNodePickerDialog(targetPanel, key, this.mergeStrategies, () => {
+              updateBtn();
+              window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+            });
+          } else {
+            updateBtn();
+            window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+          }
+        } else {
+          updateBtn();
+          window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+        }
       };
     });
-    const dismiss = e => {
-      if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('mousedown', dismiss); }
-    };
+
     setTimeout(() => document.addEventListener('mousedown', dismiss), 0);
   }
 
   /** Update merge button colors based on source panel clean/dirty state */
   updateMergeButtonStates(panels) {
     this.rootEl.querySelectorAll('.merge-btn[data-merge-source]').forEach(btn => {
+      if (btn.classList.contains('merge-btn-disabled')) return; // none strategy — skip
       const sourceId = btn.dataset.mergeSource;
       const panel = panels.get(sourceId);
       const isAllowed = panel ? panel.isClean() : true;

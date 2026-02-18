@@ -1,6 +1,34 @@
 import { nodeKey, edgeKey, deepClone } from './model.js';
 
 /**
+ * Filter a graph to only nodes upstream of (and including) the given scope node IDs.
+ * "Upstream" means nodes reachable by traversing edges in reverse direction.
+ * Returns a new subgraph containing only visited nodes and edges between them.
+ */
+export function filterUpstreamSubgraph(graph, scopeNodeIds) {
+  if (!scopeNodeIds || scopeNodeIds.length === 0) return graph;
+
+  const visited = new Set(scopeNodeIds);
+  const queue = [...scopeNodeIds];
+
+  // BFS backward (against edge direction) from scope nodes
+  while (queue.length > 0) {
+    const nodeId = queue.shift();
+    for (const edge of graph.edges) {
+      if (edge.target === nodeId && !visited.has(edge.source)) {
+        visited.add(edge.source);
+        queue.push(edge.source);
+      }
+    }
+  }
+
+  return {
+    nodes: graph.nodes.filter(n => visited.has(n.label)),
+    edges: graph.edges.filter(e => visited.has(e.source) && visited.has(e.target)),
+  };
+}
+
+/**
  * Merge incoming graph into target graph.
  * Incoming wins on conflicts (property overwrites).
  * If incomingBaseGraph is provided, deletions are also applied:

@@ -97,7 +97,10 @@ export function templateManagementModal() {
 
   wireListClicks();
 
-  dlg.querySelector('#dlg-close-x').onclick = closeDialog;
+  // Event delegation for close button — survives any inner content rerenders
+  dlg.addEventListener('click', e => {
+    if (e.target.matches('#dlg-close-x')) closeDialog();
+  });
 
   dlg.querySelector('#tpl-add').onclick = () => {
     const graphTypeOptions = Object.entries(GRAPH_TYPES)

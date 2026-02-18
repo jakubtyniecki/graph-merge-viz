@@ -1,7 +1,7 @@
 import cytoscape from 'cytoscape';
 import { buildStylesForTemplate } from '../cytoscape/styles.js';
 import { computeDiff } from '../graph/diff.js';
-import { mergeGraphs } from '../graph/merge.js';
+import { mergeGraphs, filterUpstreamSubgraph } from '../graph/merge.js';
 import { createGraph, deepClone, isEmpty, nodeKey, edgeKey, getAncestorSubgraph } from '../graph/model.js';
 import { exportToFile } from '../graph/serializer.js';
 import { showToast } from './toast.js';
@@ -415,7 +415,7 @@ export class Panel {
   }
 
   /** Receive a merge/push from another panel */
-  receiveMerge(incomingGraph, direction, incomingExclusions = null, sourceTracked = false, strategy = 'mirror') {
+  receiveMerge(incomingGraph, direction, incomingExclusions = null, sourceTracked = false, strategy = 'mirror', scopeNodes = []) {
     // Case 1: Target empty → copy graph, auto-approve
     if (isEmpty(this.graph) && !this.baseGraph) {
       this.graph = deepClone(incomingGraph);
@@ -432,10 +432,15 @@ export class Panel {
       return { ok: true };
     }
 
-    // Case 2: Normal merge — mirror uses baseGraph for deletion detection; sync is additive-only
+    // Case 2: Normal merge
     this._pushHistory();
-    const baseForDiff = strategy === 'sync' ? null : this.baseGraph;
-    this.graph = mergeGraphs(this.graph, incomingGraph, baseForDiff);
+    // Scoped: filter source to upstream of scope nodes, then use mirror logic
+    const sourceGraph = (strategy === 'scoped' && scopeNodes.length > 0)
+      ? filterUpstreamSubgraph(incomingGraph, scopeNodes)
+      : incomingGraph;
+    // push/sync = additive only (null base); mirror/scoped use target's baseGraph for deletions
+    const baseForDiff = (strategy === 'push' || strategy === 'sync') ? null : this.baseGraph;
+    this.graph = mergeGraphs(this.graph, sourceGraph, baseForDiff);
     this.mergeDirection = direction;
     if (incomingExclusions) {
       this.exclusions = mergeExclusions(this.exclusions, incomingExclusions, sourceTracked);
@@ -712,17 +717,29 @@ export class Panel {
       parts.push(`<span class="merge-direction">${this.mergeDirection}</span>`);
     }
 
-    if (this.lastApproval) {
-      const time = new Date(this.lastApproval).toLocaleTimeString();
-      parts.push(`Approved: ${time}`);
-    }
-
     if (this.baseGraph && !this.isClean()) {
       const diffCount = computeDiff(this.baseGraph, this.graph).length;
       parts.push(`${diffCount} change${diffCount !== 1 ? 's' : ''}`);
     }
 
     infoEl.innerHTML = parts.join(' · ');
+    this._updateApprovalOverlay();
+  }
+
+  /** Update or create the approval timestamp overlay in the canvas bottom-right */
+  _updateApprovalOverlay() {
+    let el = this.container.querySelector('.approval-indicator');
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'approval-indicator';
+      this.container.appendChild(el);
+    }
+    if (this.lastApproval) {
+      const time = new Date(this.lastApproval).toLocaleTimeString();
+      el.textContent = `✓ ${time}`;
+    } else {
+      el.textContent = '';
+    }
   }
 
   /** Flatten props to data attributes with prefix */
@@ -759,16 +776,17 @@ export class Panel {
     }).run();
   }
 
-  /** Level-by-level layout: sinks at top (level 0), sources at bottom */
+  /** Level-by-level layout: sinks at top (level 0), sources at bottom.
+   *  Includes ghost (diff-removed) nodes so they land at their correct levels. */
   _runLevelLayout() {
-    const nodes = this.cy.nodes().not('.diff-removed');
-    if (nodes.length === 0) return;
+    const allNodes = this.cy.nodes(); // include ghost nodes
+    if (allNodes.length === 0) return;
 
-    // Find sinks: nodes with no outgoing edges to non-removed nodes
-    const sinks = nodes.filter(n => n.outgoers('edge').not('.diff-removed').length === 0);
-    const startNodes = sinks.length > 0 ? sinks : nodes;
+    // Find sinks: nodes with no outgoing edges (real or ghost)
+    const sinks = allNodes.filter(n => n.outgoers('edge').length === 0);
+    const startNodes = sinks.length > 0 ? sinks : allNodes;
 
-    // BFS upstream from sinks to assign levels
+    // BFS upstream from sinks to assign levels — traverse all edges including ghost
     const levels = new Map();
     const queue = [];
     startNodes.forEach(n => { levels.set(n.id(), 0); queue.push(n.id()); });
@@ -776,7 +794,7 @@ export class Panel {
     while (queue.length > 0) {
       const id = queue.shift();
       const level = levels.get(id);
-      this.cy.$id(id).incomers('edge').not('.diff-removed').forEach(edge => {
+      this.cy.$id(id).incomers('edge').forEach(edge => {
         const sourceId = edge.source().id();
         if (!levels.has(sourceId) || levels.get(sourceId) < level + 1) {
           levels.set(sourceId, level + 1);
@@ -786,7 +804,7 @@ export class Panel {
     }
 
     // Unvisited nodes (disconnected) go to level 0
-    nodes.forEach(n => { if (!levels.has(n.id())) levels.set(n.id(), 0); });
+    allNodes.forEach(n => { if (!levels.has(n.id())) levels.set(n.id(), 0); });
 
     // Group by level
     const byLevel = new Map();

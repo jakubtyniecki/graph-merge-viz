@@ -69,7 +69,13 @@ function getDialog() {
   return dialogEl;
 }
 
-let overlayEl = null;
+let _overlayPanel = null;  // Track which panel owns the current overlay
+
+function _removeAllOverlays(panelEl) {
+  if (panelEl) {
+    panelEl.querySelectorAll('.panel-overlay').forEach(el => el.remove());
+  }
+}
 
 export function openDialog(html, panelEl = null) {
   const dlg = getDialog();
@@ -78,13 +84,29 @@ export function openDialog(html, panelEl = null) {
 
   // Position relative to panel if provided
   if (panelEl) {
+    // Remove any stale overlays first
+    _removeAllOverlays(panelEl);
+
     // Create and insert custom overlay into panel
-    overlayEl = document.createElement('div');
+    const overlayEl = document.createElement('div');
     overlayEl.className = 'panel-overlay';
     panelEl.insertBefore(overlayEl, panelEl.firstChild);
+    _overlayPanel = panelEl;
 
-    // Use show() instead of showModal() for scoped overlay
-    dlg.show();
+    // Cleanup on ESC or native close
+    const onClose = () => {
+      _removeAllOverlays(panelEl);
+      _overlayPanel = null;
+      dlg.removeEventListener('close', onClose);
+    };
+    dlg.addEventListener('close', onClose);
+
+    // Mark as panel-scoped (suppresses native full-screen backdrop via CSS)
+    dlg.className = 'panel-dialog';
+    // Clear any stale inline styles before positioning
+    dlg.removeAttribute('style');
+    // Use showModal() for guaranteed top-layer placement + ESC support
+    dlg.showModal();
 
     const rect = panelEl.getBoundingClientRect();
     dlg.style.position = 'fixed';
@@ -127,10 +149,11 @@ export function closeDialog() {
   dlg.className = '';
   dlg.innerHTML = '';  // clear stale content
   dlg.removeAttribute('style');
-  dlg.style.display = 'none';  // belt-and-suspenders
-  if (overlayEl) {
-    overlayEl.remove();
-    overlayEl = null;
+  // Note: do NOT set display:none here — UA stylesheet handles dialog:not([open])
+  // Setting it would break subsequent openDialog() calls (panel path clears styles before show)
+  if (_overlayPanel) {
+    _removeAllOverlays(_overlayPanel);
+    _overlayPanel = null;
   }
 }
 
@@ -1068,6 +1091,104 @@ export function panelOptionsDialog(panel) {
     closeDialog();
   };
   dlg.querySelector('#dlg-close-x').onclick = closeDialog;
+}
+
+/** Show scope node picker for "Scoped" merge strategy.
+ *  mergeStrategies[key] will be updated in-place on confirm.
+ *  rerenderFn is called after confirm or cancel to refresh the button UI. */
+export function scopeNodePickerDialog(targetPanel, key, mergeStrategies, rerenderFn) {
+  const specialTypes = targetPanel.template?.specialTypes || [];
+  const allNodes = targetPanel.graph.nodes;
+  // When specialTypes are configured, filter to only those node types
+  const nodes = specialTypes.length > 0
+    ? allNodes.filter(n => specialTypes.includes(n.type))
+    : allNodes;
+
+  const currentObj = mergeStrategies[key];
+  const currentScopeNodes = (currentObj && typeof currentObj === 'object') ? (currentObj.scopeNodes || []) : [];
+  const hadExistingNodes = currentScopeNodes.length > 0;
+
+  let rows;
+  if (nodes.length === 0) {
+    if (specialTypes.length > 0) {
+      rows = '<p style="color:var(--text-muted);padding:8px 0">No special-type nodes found in target panel. Configure Path Tracking types in template settings.</p>';
+    } else {
+      rows = '<p style="color:var(--text-muted);padding:8px 0">No nodes in target panel.</p>';
+    }
+  } else {
+    rows = nodes.map(n => {
+      const checked = currentScopeNodes.includes(n.label) ? 'checked' : '';
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px">
+          <input type="checkbox" class="scope-node-cb" value="${n.label}" ${checked} style="width:auto;margin:0">
+          <span>${n.label}</span>
+        </div>`;
+    }).join('');
+  }
+
+  const dlg = openDialog(`
+    <div class="dialog-header">
+      <h3>Select Scope Nodes</h3>
+      <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
+    </div>
+    <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Select nodes in the target panel. Only upstream ancestors of these nodes will be merged.</p>
+    <div style="max-height:200px;overflow-y:auto;margin-bottom:8px">${rows}</div>
+    <div class="dialog-actions">
+      <button id="dlg-cancel">Cancel</button>
+      <button id="dlg-ok" class="btn-primary">Apply</button>
+    </div>
+  `);
+
+  const doCancel = () => {
+    // Revert to mirror if no prior scope nodes were set
+    if (!hadExistingNodes) delete mergeStrategies[key];
+    closeDialog();
+    if (rerenderFn) rerenderFn();
+  };
+
+  dlg.querySelector('#dlg-ok').onclick = () => {
+    const selected = [...dlg.querySelectorAll('.scope-node-cb:checked')].map(cb => cb.value);
+    mergeStrategies[key] = { strategy: 'scoped', scopeNodes: selected };
+    closeDialog();
+    if (rerenderFn) rerenderFn();
+  };
+  dlg.querySelector('#dlg-cancel').onclick = doCancel;
+  dlg.querySelector('#dlg-close-x').onclick = doCancel;
+}
+
+/** Show dialog to add a custom merge button for arbitrary panel pair.
+ *  allPanelInfos: [{id, name}], existingList: [{source, target}], onAdd: ({source, target}) => void */
+export function addMergeButtonDialog(allPanelInfos, existingList, onAdd) {
+  const options = allPanelInfos.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+  const dlg = openDialog(`
+    <h3>Add Merge Button</h3>
+    <label>Source Panel</label>
+    <select id="dlg-source">${options}</select>
+    <label>Target Panel</label>
+    <select id="dlg-target">${options}</select>
+    <p id="dlg-warning" style="color:var(--warning);font-size:11px;display:none;margin-bottom:6px">This merge direction already exists.</p>
+    <div class="dialog-actions">
+      <button id="dlg-cancel">Cancel</button>
+      <button id="dlg-ok" class="btn-primary">Add</button>
+    </div>
+  `);
+
+  const checkDuplicate = () => {
+    const source = dlg.querySelector('#dlg-source').value;
+    const target = dlg.querySelector('#dlg-target').value;
+    const exists = existingList.some(b => b.source === source && b.target === target);
+    dlg.querySelector('#dlg-warning').style.display = exists ? '' : 'none';
+  };
+
+  dlg.querySelector('#dlg-source').onchange = checkDuplicate;
+  dlg.querySelector('#dlg-target').onchange = checkDuplicate;
+  dlg.querySelector('#dlg-cancel').onclick = closeDialog;
+  dlg.querySelector('#dlg-ok').onclick = () => {
+    const source = dlg.querySelector('#dlg-source').value;
+    const target = dlg.querySelector('#dlg-target').value;
+    if (source === target) { showToast('Source and target must differ', 'error'); return; }
+    closeDialog();
+    onAdd({ source, target });
+  };
 }
 
 /** Show a "New Session" dialog with name + template selection.

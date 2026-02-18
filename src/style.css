@@ -510,9 +510,6 @@ button:active {
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Ensure closed dialogs are hidden (belt-and-suspenders) */
-dialog:not([open]) { display: none; }
-
 /* Dialogs */
 dialog {
   background: var(--surface);
@@ -528,7 +525,7 @@ dialog {
 }
 
 dialog[open] {
-  z-index: 100;
+  z-index: 9999;
 }
 
 dialog.dialog-wide {
@@ -537,6 +534,11 @@ dialog.dialog-wide {
 
 dialog::backdrop {
   background: rgba(0, 0, 0, 0.75);
+}
+
+/* Panel-scoped dialogs use .panel-overlay for local darkening — suppress native backdrop */
+dialog.panel-dialog::backdrop {
+  background: transparent;
 }
 
 dialog h3 {
@@ -1310,6 +1312,19 @@ dialog:has(.preview-header) {
   flex-wrap: wrap;
 }
 
+/* ===== Approval timestamp overlay (canvas bottom-right) ===== */
+.approval-indicator {
+  position: absolute;
+  bottom: 28px;
+  right: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 5;
+  user-select: none;
+}
+
 /* ===== Processing indicator ===== */
 .processing-indicator {
   display: none;
@@ -1344,6 +1359,26 @@ dialog:has(.preview-header) {
   flex-shrink: 0;
 }
 
+/* ===== Disabled merge button (None strategy) ===== */
+.merge-btn.merge-btn-disabled {
+  background: #3a3a4a;
+  color: #666;
+  cursor: not-allowed;
+  border-left: 3px solid #555;
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.merge-btn.merge-btn-disabled:hover {
+  background: #3a3a4a;
+  opacity: 1;
+}
+
+.merge-btn.merge-btn-disabled .merge-btn-text {
+  text-decoration: line-through;
+}
+
 /* ===== Strategy picker popover ===== */
 .merge-strategy-picker {
   background: var(--surface);
@@ -1368,4 +1403,98 @@ dialog:has(.preview-header) {
 .strategy-option.active {
   color: var(--accent);
   font-weight: 600;
+}
+
+.strategy-separator {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+
+.strategy-delete {
+  color: #e05c5c;
+}
+
+/* ===== Merge button flat list (drag-and-drop) ===== */
+.merge-zone.merge-zone-flat {
+  top: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  padding: 4px 0;
+  overflow-y: auto;
+  overflow-x: visible;
+  scrollbar-width: none;
+}
+
+.merge-zone.merge-zone-flat::-webkit-scrollbar {
+  display: none;
+}
+
+.split-h > .merge-gutter .merge-zone.merge-zone-flat {
+  top: 50%;
+  height: auto;
+  transform: translateY(-50%);
+  flex-direction: row;
+  left: 0;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
+  padding: 0 4px;
+  justify-content: flex-start;
+}
+
+.merge-btn-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  pointer-events: auto;
+}
+
+.merge-btn-row.dragging {
+  opacity: 0.4;
+}
+
+.merge-btn-drag {
+  cursor: grab;
+  color: var(--text-muted);
+  padding: 0 2px;
+  font-size: 11px;
+  user-select: none;
+  pointer-events: auto;
+  line-height: 1;
+}
+
+.merge-btn-drag:active {
+  cursor: grabbing;
+}
+
+.merge-btn-add {
+  background: none;
+  border: 1px dashed #5bb8f5;
+  color: #5bb8f5;
+  border-radius: 4px;
+  padding: 2px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 4px;
+  width: auto;
+  pointer-events: auto;
+  min-height: unset;
+  white-space: nowrap;
+}
+
+.merge-btn-add:hover {
+  background: rgba(91, 184, 245, 0.1);
+}
+
+.merge-zone-empty {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+  padding: 4px;
+  pointer-events: none;
 }

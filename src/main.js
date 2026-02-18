@@ -42,6 +42,14 @@ const layoutManager = new LayoutManager(document.getElementById('app'), {
     const target = panels.get(targetId);
     if (!source || !target) return;
 
+    const key = `${sourceId}→${targetId}`;
+    const stratObj = layoutManager._getStrategy(key);
+    const strategy = stratObj.strategy;
+    const scopeNodes = stratObj.scopeNodes || [];
+
+    // Defense-in-depth: none should be blocked at button level but guard here too
+    if (strategy === 'none') return;
+
     if (source.baseGraph && !source.isClean()) {
       await infoDialog(
         'Merge Blocked',
@@ -52,8 +60,7 @@ const layoutManager = new LayoutManager(document.getElementById('app'), {
     }
 
     const direction = `${sourceId} → ${targetId}`;
-    const strategy = layoutManager.mergeStrategies[`${sourceId}→${targetId}`] || 'mirror';
-    const result = target.receiveMerge(source.getGraph(), direction, source.exclusions, source.pathTrackingEnabled, strategy);
+    const result = target.receiveMerge(source.getGraph(), direction, source.exclusions, source.pathTrackingEnabled, strategy, scopeNodes);
     if (result.ok) {
       showToast(`Pushed ${direction}`, 'success');
     } else {
@@ -78,6 +85,8 @@ const layoutManager = new LayoutManager(document.getElementById('app'), {
       document.querySelector(`.panel[data-panel-id="${id}"]`)
     );
   },
+
+  getPanels() { return panels; },
 
   onResizeEnd(splitNode) {
     const leftIds = layoutManager._allPanelIds(splitNode.children[0]);
