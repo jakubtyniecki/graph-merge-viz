@@ -510,6 +510,9 @@ button:active {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Ensure closed dialogs are hidden (belt-and-suspenders) */
+dialog:not([open]) { display: none; }
+
 /* Dialogs */
 dialog {
   background: var(--surface);
@@ -519,6 +522,7 @@ dialog {
   padding: 16px;
   min-width: 250px;
   max-width: 350px;
+  overflow: auto;
   overflow-wrap: break-word;
   word-wrap: break-word;
 }
@@ -826,7 +830,6 @@ dialog:has(.preview-header) {
 
 /* ===== Desktop defaults for responsive elements ===== */
 .title-short { display: none; }
-.btn-icon-only { display: none; }
 
 /* ===== Dialog header ===== */
 .dialog-header {
@@ -834,10 +837,39 @@ dialog:has(.preview-header) {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
+  cursor: move;
+  user-select: none;
 }
 
 .dialog-header h3 {
   margin-bottom: 0;
+}
+
+/* Exclusion toggle buttons in edge edit dialog */
+.excl-toggle {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: 'Courier New', monospace;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  min-height: unset;
+}
+.excl-btn-included {
+  background: rgba(76, 175, 80, 0.2);
+  color: var(--diff-added);
+  border-color: var(--diff-added);
+}
+.excl-btn-excluded {
+  background: rgba(244, 67, 54, 0.2);
+  color: var(--diff-removed);
+  border-color: var(--diff-removed);
+}
+.excl-btn-propagated {
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.7;
 }
 
 .btn-close-icon {
@@ -935,10 +967,6 @@ dialog:has(.preview-header) {
   }
 
   .header-section { gap: 4px; }
-
-  /* Panel actions: icons only */
-  .btn-label { display: none; }
-  .btn-icon-only { display: inline; }
 
   .panel-actions {
     gap: 2px;
@@ -1154,6 +1182,8 @@ dialog:has(.preview-header) {
 }
 
 .exclusion-item input[type="checkbox"] {
+  width: auto;
+  margin-bottom: 0;
   cursor: pointer;
 }
 
@@ -1177,11 +1207,27 @@ dialog:has(.preview-header) {
   font-size: 12px;
 }
 
+.special-type-item input[type="checkbox"] {
+  width: auto;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
 .special-type-item button {
   padding: 1px 4px;
   font-size: 10px;
   min-height: unset;
   line-height: 1.4;
+}
+
+/* ===== Path tracking flash indicator ===== */
+@keyframes tracking-pulse {
+  0% { background: rgba(79, 195, 247, 0.3); }
+  100% { background: transparent; }
+}
+
+.tracking-flash {
+  animation: tracking-pulse 0.3s ease;
 }
 
 /* ===== Panel header actions (undo/redo/refresh) ===== */
@@ -1262,4 +1308,64 @@ dialog:has(.preview-header) {
   padding-top: 8px;
   border-top: 1px solid var(--border);
   flex-wrap: wrap;
+}
+
+/* ===== Processing indicator ===== */
+.processing-indicator {
+  display: none;
+  font-size: 14px;
+  color: var(--accent);
+  line-height: 1;
+  margin-left: 2px;
+}
+
+.panel.processing .processing-indicator {
+  display: inline;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ===== Merge strategy badge ===== */
+.merge-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+}
+
+.merge-strategy-badge {
+  margin-left: auto;
+  font-size: 9px;
+  opacity: 0.6;
+  font-weight: normal;
+  flex-shrink: 0;
+}
+
+/* ===== Strategy picker popover ===== */
+.merge-strategy-picker {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  min-width: 120px;
+}
+
+.strategy-option {
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.strategy-option:hover {
+  background: var(--surface-hover);
+}
+
+.strategy-option.active {
+  color: var(--accent);
+  font-weight: 600;
 }

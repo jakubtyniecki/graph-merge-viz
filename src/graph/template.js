@@ -13,6 +13,7 @@ export const defaultTemplate = () => ({
   graphType: 'UCG',
   nodeTypes: [],
   edgeTypes: [],
+  specialTypes: [],
 });
 
 /** Create a new named template */
@@ -21,6 +22,13 @@ export const createTemplate = (name, graphType = 'UCG') => ({
   graphType,
   nodeTypes: [],
   edgeTypes: [],
+  specialTypes: [],
+});
+
+/** Set special type IDs (ordered) for path tracking */
+export const setSpecialTypes = (template, typeIds) => ({
+  ...template,
+  specialTypes: [...typeIds],
 });
 
 export const addNodeType = (template, nodeType) => ({

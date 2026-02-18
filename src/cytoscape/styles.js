@@ -44,6 +44,36 @@ export const baseStyles = [
       'width': 3,
     },
   },
+  // Path tracking styles
+  {
+    selector: '.edge-excluded',
+    style: {
+      'line-style': 'dashed',
+      'line-dash-pattern': [6, 3],
+    },
+  },
+  {
+    selector: '.edge-all-excluded',
+    style: {
+      'line-style': 'dotted',
+      'line-dash-pattern': [2, 4],
+      'opacity': 0.4,
+    },
+  },
+  {
+    selector: '.node-fully-excluded',
+    style: {
+      'border-style': 'dotted',
+      'border-width': 3,
+      'opacity': 0.5,
+    },
+  },
+  {
+    selector: '.tracking-hidden',
+    style: {
+      'display': 'none',
+    },
+  },
   // Diff styles
   {
     selector: '.diff-added',

@@ -2,18 +2,17 @@ import cytoscape from 'cytoscape';
 import fcose from 'cytoscape-fcose';
 import { Panel } from './ui/panel.js';
 import { LayoutManager } from './ui/layout.js';
-import { addNodeDialog, addEdgeDialog, importGraphDialog, confirmDialog, infoDialog, changelogDialog, changesetSummaryDialog } from './ui/dialogs.js';
+import { addNodeDialog, addEdgeDialog, importGraphDialog, confirmDialog, infoDialog, changelogDialog, changesetSummaryDialog, panelOptionsDialog } from './ui/dialogs.js';
 import { setupSession, getSessionTemplate } from './ui/session.js';
 import { setupClipboard } from './ui/clipboard.js';
 import { setupContextMenu } from './ui/context-menu.js';
 import { showToast } from './ui/toast.js';
 import { setupStatusBar } from './ui/status-bar.js';
-import { setupTemplateUI, loadGlobalTemplates, getSelectedTemplateName } from './ui/template-ui.js';
+import { setupTemplateUI } from './ui/template-ui.js';
 
 cytoscape.use(fcose);
 
 const panels = new Map();
-let layoutAlgorithm = 'fcose';
 
 /** Propagate current session template to all panels */
 function propagateTemplate(template) {
@@ -53,7 +52,8 @@ const layoutManager = new LayoutManager(document.getElementById('app'), {
     }
 
     const direction = `${sourceId} → ${targetId}`;
-    const result = target.receiveMerge(source.getGraph(), direction);
+    const strategy = layoutManager.mergeStrategies[`${sourceId}→${targetId}`] || 'mirror';
+    const result = target.receiveMerge(source.getGraph(), direction, source.exclusions, source.pathTrackingEnabled, strategy);
     if (result.ok) {
       showToast(`Pushed ${direction}`, 'success');
     } else {
@@ -132,6 +132,7 @@ document.getElementById('app').addEventListener('click', async e => {
     case 'refresh':
       panel.cy.resize();
       panel._runLayout();
+      panel._recomputePathTracking();
       break;
     case 'restore': {
       const confirmed = await confirmDialog(
@@ -144,20 +145,15 @@ document.getElementById('app').addEventListener('click', async e => {
     }
     case 'import': importGraphDialog(panel); break;
     case 'export': panel.exportGraph(); break;
+    case 'panel-options': panelOptionsDialog(panel); break;
   }
 });
-
-// Wire add-panel button
-document.getElementById('add-panel-btn').onclick = () => layoutManager.addPanel();
 
 // Initialize default layout
 layoutManager.init();
 
 // Setup template UI (global templates in header)
-setupTemplateUI((template) => {
-  // When global template is selected, apply to current session panels
-  propagateTemplate(template);
-});
+setupTemplateUI();
 
 // Setup session management with template change callback
 setupSession(panels, layoutManager, (template) => {
@@ -199,17 +195,6 @@ document.addEventListener('keydown', async e => {
   }
 });
 
-// Layout algorithm change handler
-const layoutSelect = document.getElementById('layout-algo');
-layoutSelect.value = layoutAlgorithm;
-layoutSelect.addEventListener('change', e => {
-  layoutAlgorithm = e.target.value;
-  window.__layoutAlgorithm = layoutAlgorithm;
-  for (const panel of panels.values()) {
-    panel._runLayout();
-  }
-});
-
 // Update merge button states on panel changes
 const updateMergeStates = () => layoutManager.updateMergeButtonStates(panels);
 window.addEventListener('panel-change', updateMergeStates);
@@ -217,4 +202,3 @@ window.addEventListener('panel-change', updateMergeStates);
 // Expose for debugging
 window.__panels = panels;
 window.__layout = layoutManager;
-window.__layoutAlgorithm = layoutAlgorithm;

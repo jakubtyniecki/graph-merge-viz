@@ -4,6 +4,7 @@ import { confirmDialog } from './dialogs.js';
 
 let _getPanels = null;
 let _clipboard = null; // { nodes: [], edges: [] }
+let _clipboardExclusions = {}; // { edgeKey: string[] }
 let _focusedPanelId = null;
 let _copyMode = null; // 'elements' | 'branch'
 let _branchRoot = null; // label of root node for branch paste
@@ -55,6 +56,7 @@ export function copyFromPanel(panelId) {
   }
 
   _clipboard = subgraph;
+  _clipboardExclusions = panel.getRelevantExclusions(subgraph);
   _copyMode = 'elements';
   _branchRoot = null;
   showToast(`Copied ${subgraph.nodes.length} node(s), ${subgraph.edges.length} edge(s)`, 'success');
@@ -70,8 +72,10 @@ export function pasteToPanel(panelId) {
   const panel = _getPanels().get(panelId);
   if (!panel) return;
 
+  const sourcePanel = _getPanels().get(_focusedPanelId);
+  const sourceTracked = sourcePanel ? sourcePanel.pathTrackingEnabled : false;
   const direction = `paste → ${panel.id}`;
-  const result = panel.pasteSubgraph(_clipboard, direction);
+  const result = panel.pasteSubgraph(_clipboard, direction, _clipboardExclusions, sourceTracked);
   if (result.ok) {
     showToast('Pasted subgraph', 'success');
   } else {
@@ -91,6 +95,7 @@ export function copyBranch(panelId, nodeLabel) {
   }
 
   _clipboard = subgraph;
+  _clipboardExclusions = panel.getRelevantExclusions(subgraph);
   _copyMode = 'branch';
   _branchRoot = nodeLabel;
 
@@ -120,8 +125,10 @@ export function pasteBranchToNode(panelId, targetLabel) {
     };
   }
 
+  const sourcePanel = _getPanels().get(_focusedPanelId);
+  const sourceTracked = sourcePanel ? sourcePanel.pathTrackingEnabled : false;
   const direction = `branch paste → ${targetLabel}`;
-  const result = panel.pasteSubgraph(mergeGraph, direction);
+  const result = panel.pasteSubgraph(mergeGraph, direction, _clipboardExclusions, sourceTracked);
   if (result.ok) {
     if (targetLabel === _branchRoot) {
       showToast('Pasted branch (no linking edge)', 'success');
@@ -136,6 +143,7 @@ export function pasteBranchToNode(panelId, targetLabel) {
 /** Clear clipboard */
 export function clearClipboard() {
   _clipboard = null;
+  _clipboardExclusions = {};
   _copyMode = null;
   _branchRoot = null;
   showToast('Clipboard cleared', 'info');

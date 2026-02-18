@@ -109,6 +109,7 @@ function saveCurrentSession() {
   for (const [id, panel] of _panels) {
     panelStates[id] = panel.getState();
   }
+  // mergeStrategies is included in getLayout() already
   sessions[name] = {
     layout: _layoutManager.getLayout(),
     panels: panelStates,

@@ -33,6 +33,31 @@ function expandNodeLabels(input) {
   return labels;
 }
 
+/** Attach drag-by-header behavior to a dialog element */
+function makeDraggable(dlg, handle) {
+  const onMouseDown = (e) => {
+    if (e.target.closest('button, input, select, textarea')) return;
+    e.preventDefault();
+    const rect = dlg.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+    const onMouseMove = (e) => {
+      dlg.style.position = 'fixed';
+      dlg.style.margin = '0';
+      dlg.style.transform = 'none';
+      dlg.style.left = `${Math.max(0, e.clientX - offsetX)}px`;
+      dlg.style.top = `${Math.max(0, e.clientY - offsetY)}px`;
+    };
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+  handle.addEventListener('mousedown', onMouseDown);
+}
+
 // Shared dialog element
 let dialogEl = null;
 
@@ -48,6 +73,7 @@ let overlayEl = null;
 
 export function openDialog(html, panelEl = null) {
   const dlg = getDialog();
+  dlg.className = '';  // Clear stale classes from previous dialog
   dlg.innerHTML = html;
 
   // Position relative to panel if provided
@@ -78,21 +104,30 @@ export function openDialog(html, panelEl = null) {
       dlg.style.top = `${Math.max(dlgH / 2 + margin, Math.min(rawTop, window.innerHeight - dlgH / 2 - margin))}px`;
     });
   } else {
-    // Full-page modal with native backdrop — clear any leftover panel-scoped styles first
-    dlg.style.position = '';
-    dlg.style.left = '';
-    dlg.style.top = '';
-    dlg.style.transform = '';
-    dlg.style.margin = '';
+    // Full-page modal with native backdrop — explicitly center and clear stale panel styles
+    dlg.removeAttribute('style');
+    dlg.style.position = 'fixed';
+    dlg.style.left = '50%';
+    dlg.style.top = '50%';
+    dlg.style.transform = 'translate(-50%, -50%)';
+    dlg.style.margin = '0';
     dlg.showModal();
   }
+
+  // Make draggable by header
+  const dragHandle = dlg.querySelector('.dialog-header') || dlg.querySelector('h3');
+  if (dragHandle) makeDraggable(dlg, dragHandle);
 
   return dlg;
 }
 
 export function closeDialog() {
-  getDialog().close();
-  // Remove custom overlay if it exists
+  const dlg = getDialog();
+  if (dlg.open) dlg.close();
+  dlg.className = '';
+  dlg.innerHTML = '';  // clear stale content
+  dlg.removeAttribute('style');
+  dlg.style.display = 'none';  // belt-and-suspenders
   if (overlayEl) {
     overlayEl.remove();
     overlayEl = null;
@@ -314,16 +349,91 @@ export function editSelectedDialog(panel) {
         ${template.edgeTypes.map(et => `<option value="${et.id}" ${edge.type === et.id ? 'selected' : ''}>${et.label}</option>`).join('')}
       </select>`
       : '';
+    const edgeKey = `${source}→${target}`;
+    const hasTracking = panel.pathTrackingEnabled && panel._pathTags;
+    const trackingTags = hasTracking ? (panel._pathTags.get(edgeKey) || []) : [];
+    const specialTypes = panel.template?.specialTypes || [];
+
+    const buildTagSummary = () => {
+      if (!hasTracking || trackingTags.length === 0) return '';
+      const effectiveExcluded = panel._effectiveExclusions?.get(edgeKey) || new Set();
+      const includedTags = trackingTags.filter(t => !effectiveExcluded.has(pathSerializeTag(t, specialTypes)));
+      const excludedTags = trackingTags.filter(t => effectiveExcluded.has(pathSerializeTag(t, specialTypes)));
+      const parts = [];
+      if (includedTags.length) parts.push('Included: ' + includedTags.map(t => pathFormatTag(t, specialTypes, panel.template?.nodeTypes || [])).join(', '));
+      if (excludedTags.length) parts.push('Excluded: ' + excludedTags.map(t => pathFormatTag(t, specialTypes, panel.template?.nodeTypes || [])).join(', '));
+      return parts.join('\n') || '(no active paths)';
+    };
+
+    const buildToggleButtons = () => {
+      if (!hasTracking || trackingTags.length === 0) return '';
+      const effectiveExcluded = panel._effectiveExclusions?.get(edgeKey) || new Set();
+      const directExcluded = new Set(panel.exclusions[edgeKey] || []);
+      return trackingTags.map(t => {
+        const serialized = pathSerializeTag(t, specialTypes);
+        const isDirect = directExcluded.has(serialized);
+        const isPropagated = effectiveExcluded.has(serialized) && !isDirect;
+        const isExcluded = isDirect || isPropagated;
+        const label = pathFormatTag(t, specialTypes, panel.template?.nodeTypes || []);
+        const cls = isPropagated ? 'excl-toggle excl-btn-propagated' : (isExcluded ? 'excl-toggle excl-btn-excluded' : 'excl-toggle excl-btn-included');
+        const title = isPropagated ? `${label} (inherited from upstream)` : label;
+        return `<button class="${cls}" data-tag="${serialized}" data-propagated="${isPropagated}" title="${title}">${label}</button>`;
+      }).join('');
+    };
+
+    const trackingSection = hasTracking && trackingTags.length > 0 ? `
+      <div class="template-section-label" style="margin-top:12px">Path Tags</div>
+      <pre id="edge-tag-summary" style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:6px 8px;font-size:11px;margin-bottom:8px;white-space:pre-wrap;word-break:break-all">${buildTagSummary()}</pre>
+      <div class="template-section-label">Manage Exclusions</div>
+      <div id="edge-excl-toggles" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">${buildToggleButtons()}</div>
+    ` : '';
+
     const dlg = openDialog(`
       <h3>Edit Edge: ${source} → ${target}</h3>
       ${typeSelect}
       <label>Properties (key=value per line)</label>
       <textarea id="dlg-props">${propsToText(edge.props)}</textarea>
+      ${trackingSection}
       <div class="dialog-actions">
         <button id="dlg-cancel">Cancel</button>
         <button id="dlg-ok" class="btn-primary">Save</button>
       </div>
     `, panel.panelEl);
+
+    // Wire toggle buttons
+    if (hasTracking && trackingTags.length > 0) {
+      const refreshTagUI = () => {
+        const effectiveExcluded = panel._effectiveExclusions?.get(edgeKey) || new Set();
+        const directExcluded = new Set(panel.exclusions[edgeKey] || []);
+        const includedTags = trackingTags.filter(t => !effectiveExcluded.has(pathSerializeTag(t, specialTypes)));
+        const excludedTags = trackingTags.filter(t => effectiveExcluded.has(pathSerializeTag(t, specialTypes)));
+        const parts = [];
+        if (includedTags.length) parts.push('Included: ' + includedTags.map(t => pathFormatTag(t, specialTypes, panel.template?.nodeTypes || [])).join(', '));
+        if (excludedTags.length) parts.push('Excluded: ' + excludedTags.map(t => pathFormatTag(t, specialTypes, panel.template?.nodeTypes || [])).join(', '));
+        dlg.querySelector('#edge-tag-summary').textContent = parts.join('\n') || '(no active paths)';
+        dlg.querySelectorAll('#edge-excl-toggles .excl-toggle').forEach(btn => {
+          const serialized = btn.dataset.tag;
+          const isPropagated = btn.dataset.propagated === 'true';
+          if (isPropagated) return;
+          const isExcluded = (panel._effectiveExclusions?.get(edgeKey) || new Set()).has(serialized);
+          btn.className = isExcluded ? 'excl-toggle excl-btn-excluded' : 'excl-toggle excl-btn-included';
+        });
+      };
+      dlg.querySelectorAll('#edge-excl-toggles .excl-toggle').forEach(btn => {
+        if (btn.dataset.propagated === 'true') return;
+        btn.onclick = () => {
+          const serialized = btn.dataset.tag;
+          const isExcluded = (panel._effectiveExclusions?.get(edgeKey) || new Set()).has(serialized);
+          if (isExcluded) {
+            panel.includePathTag(edgeKey, serialized);
+          } else {
+            panel.excludePathTag(edgeKey, serialized);
+          }
+          refreshTagUI();
+        };
+      });
+    }
+
     dlg.querySelector('#dlg-cancel').onclick = closeDialog;
     dlg.querySelector('#dlg-ok').onclick = () => {
       const props = textToProps(dlg.querySelector('#dlg-props').value);
@@ -471,11 +581,21 @@ export function approvalPreviewDialog(entry, index, panel) {
   dlg.querySelector('#preview-maximize').onclick = () => {
     maximized = !maximized;
     if (maximized) {
+      dlg.style.position = 'fixed';
+      dlg.style.left = '20px';
+      dlg.style.top = '20px';
+      dlg.style.transform = 'none';
+      dlg.style.margin = '0';
       dlg.style.width = 'calc(100vw - 40px)';
       dlg.style.height = 'calc(100vh - 40px)';
       dlg.style.maxWidth = 'none';
       dlg.style.maxHeight = 'none';
     } else {
+      dlg.style.position = '';
+      dlg.style.left = '';
+      dlg.style.top = '';
+      dlg.style.transform = '';
+      dlg.style.margin = '';
       dlg.style.width = '';
       dlg.style.height = '';
       dlg.style.maxWidth = '80vw';
@@ -614,7 +734,7 @@ export function approvalPreviewDialog(entry, index, panel) {
   };
 
   dlg.querySelector('#dlg-close-x').onclick = () => {
-    cy.destroy();
+    try { cy.destroy(); } catch (e) {}
     closeDialog();
   };
 }
@@ -901,6 +1021,7 @@ export function panelOptionsDialog(panel) {
   const panelEl = panel.panelEl;
   const algos = [
     { value: 'fcose', label: 'Force-Directed (fcose)' },
+    { value: 'level-by-level', label: 'Level-by-Level (DAG)' },
     { value: 'circle', label: 'Circle' },
     { value: 'concentric', label: 'Concentric' },
     { value: 'breadthfirst', label: 'Breadth-First' },
@@ -916,8 +1037,8 @@ export function panelOptionsDialog(panel) {
   const trackingHtml = isDAG ? `
     <div class="template-section-label" style="margin-top:12px">Path Tracking</div>
     ${!hasSpecialTypes ? '<p style="font-size:11px;color:var(--text-muted)">No special types configured in template. Edit the template to add special types for DAG path tracking.</p>' : `
-    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
-      <input type="checkbox" id="dlg-tracking" ${panel.pathTrackingEnabled ? 'checked' : ''}>
+    <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;white-space:nowrap">
+      <input type="checkbox" id="dlg-tracking" style="width:auto;flex-shrink:0" ${panel.pathTrackingEnabled ? 'checked' : ''}>
       Enable path tracking
     </label>
     `}

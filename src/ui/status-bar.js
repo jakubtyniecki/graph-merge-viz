@@ -77,7 +77,7 @@ export function updateStatusBar() {
   // Left side: storage + session stats
   let leftContent = `Storage: ${formatBytes(usage)}`;
   if (stats) {
-    leftContent += ` | ${stats.totalNodes}n ${stats.totalEdges}e ${stats.totalPanels}p across ${stats.sessionCount} session${stats.sessionCount !== 1 ? 's' : ''}`;
+    leftContent += ` | ${stats.totalNodes}n ${stats.totalEdges}e ${stats.totalPanels}p ${stats.sessionCount}s`;
   }
   leftEl.textContent = leftContent;
 

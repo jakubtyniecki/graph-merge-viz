@@ -112,6 +112,7 @@ export class Panel {
     this._maxHistory = 10;
     this._approvalHistory = [];
     this._maxApprovalHistory = 20;
+    this._processingCount = 0;
 
     this.cy = cytoscape({
       container,
@@ -205,7 +206,7 @@ export class Panel {
     })) : [];
     this._syncCytoscape();
     this._applyDiffClasses();
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
   }
 
@@ -231,7 +232,7 @@ export class Panel {
     };
     this._syncCytoscape();
     this._applyDiffClasses();
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
     this._emitChange();
     return true;
@@ -260,7 +261,7 @@ export class Panel {
     };
     this._syncCytoscape();
     this._applyDiffClasses();
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
     this._emitChange();
     return true;
@@ -278,7 +279,7 @@ export class Panel {
     };
     this._syncCytoscape();
     this._applyDiffClasses();
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
     this._emitChange();
   }
@@ -295,7 +296,7 @@ export class Panel {
     };
     this._syncCytoscape();
     this._applyDiffClasses();
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
     this._emitChange();
   }
@@ -358,7 +359,7 @@ export class Panel {
 
     this._syncCytoscape();
     this._applyDiffClasses();
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
     this._emitChange();
   }
@@ -374,7 +375,7 @@ export class Panel {
     this._approvalHistory = [];
     this._syncCytoscape();
     this._applyDiffClasses();
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
     this._emitChange();
   }
@@ -406,6 +407,7 @@ export class Panel {
     this.mergeDirection = null;
     this.lastApproval = new Date().toISOString();
     this._syncCytoscape();      // Re-sync with new baseGraph to remove ghost nodes
+    this._recomputePathTrackingAsync();
     this._clearDiffClasses();
     this._updateHeader();
     this._emitChange();
@@ -413,7 +415,7 @@ export class Panel {
   }
 
   /** Receive a merge/push from another panel */
-  receiveMerge(incomingGraph, direction, incomingExclusions = null, sourceTracked = false) {
+  receiveMerge(incomingGraph, direction, incomingExclusions = null, sourceTracked = false, strategy = 'mirror') {
     // Case 1: Target empty → copy graph, auto-approve
     if (isEmpty(this.graph) && !this.baseGraph) {
       this.graph = deepClone(incomingGraph);
@@ -424,22 +426,23 @@ export class Panel {
         this.exclusions = mergeExclusions(this.exclusions, incomingExclusions, sourceTracked);
       }
       this._syncCytoscape();
-      this._recomputePathTracking();
+      this._recomputePathTrackingAsync();
       this._updateHeader();
       this._emitChange();
       return { ok: true };
     }
 
-    // Case 2: Normal merge — use target's baseGraph for deletion detection
+    // Case 2: Normal merge — mirror uses baseGraph for deletion detection; sync is additive-only
     this._pushHistory();
-    this.graph = mergeGraphs(this.graph, incomingGraph, this.baseGraph);
+    const baseForDiff = strategy === 'sync' ? null : this.baseGraph;
+    this.graph = mergeGraphs(this.graph, incomingGraph, baseForDiff);
     this.mergeDirection = direction;
     if (incomingExclusions) {
       this.exclusions = mergeExclusions(this.exclusions, incomingExclusions, sourceTracked);
     }
     this._syncCytoscape();
     this._applyDiffClasses();
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
     this._emitChange();
 
@@ -464,7 +467,7 @@ export class Panel {
         this.exclusions = mergeExclusions(this.exclusions, incomingExclusions, sourceTracked);
       }
       this._syncCytoscape();
-      this._recomputePathTracking();
+      this._recomputePathTrackingAsync();
       this._updateHeader();
       this._emitChange();
     } else {
@@ -476,7 +479,7 @@ export class Panel {
       }
       this._syncCytoscape();
       this._applyDiffClasses();
-      this._recomputePathTracking();
+      this._recomputePathTrackingAsync();
       this._updateHeader();
       this._emitChange();
     }
@@ -512,7 +515,7 @@ export class Panel {
     this.exclusions = this._historyExclusions(entry);
     this._syncCytoscape();
     this._applyDiffClasses();
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
     this._emitChange();
     showToast('Undo', 'info');
@@ -532,7 +535,7 @@ export class Panel {
     this.exclusions = this._historyExclusions(entry);
     this._syncCytoscape();
     this._applyDiffClasses();
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
     this._emitChange();
     showToast('Redo', 'info');
@@ -552,7 +555,7 @@ export class Panel {
     this.exclusions = lastApproval?.exclusions ? deepClone(lastApproval.exclusions) : {};
     this._syncCytoscape();
     this._applyDiffClasses();  // Will show no diffs (graph === baseGraph)
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._updateHeader();
     this._emitChange();
     showToast(`Panel ${this.id} restored to approved state`, 'success');
@@ -742,8 +745,70 @@ export class Panel {
   _runLayout() {
     if (this.cy.elements().length === 0) return;
     const algo = this.layoutAlgorithm || 'fcose';
+
+    if (algo === 'level-by-level') {
+      this._runLevelLayout();
+      return;
+    }
+
     this.cy.layout({
       name: this.cy.nodes().length > 1 ? algo : 'grid',
+      animate: false,
+      fit: true,
+      padding: 20,
+    }).run();
+  }
+
+  /** Level-by-level layout: sinks at top (level 0), sources at bottom */
+  _runLevelLayout() {
+    const nodes = this.cy.nodes().not('.diff-removed');
+    if (nodes.length === 0) return;
+
+    // Find sinks: nodes with no outgoing edges to non-removed nodes
+    const sinks = nodes.filter(n => n.outgoers('edge').not('.diff-removed').length === 0);
+    const startNodes = sinks.length > 0 ? sinks : nodes;
+
+    // BFS upstream from sinks to assign levels
+    const levels = new Map();
+    const queue = [];
+    startNodes.forEach(n => { levels.set(n.id(), 0); queue.push(n.id()); });
+
+    while (queue.length > 0) {
+      const id = queue.shift();
+      const level = levels.get(id);
+      this.cy.$id(id).incomers('edge').not('.diff-removed').forEach(edge => {
+        const sourceId = edge.source().id();
+        if (!levels.has(sourceId) || levels.get(sourceId) < level + 1) {
+          levels.set(sourceId, level + 1);
+          queue.push(sourceId);
+        }
+      });
+    }
+
+    // Unvisited nodes (disconnected) go to level 0
+    nodes.forEach(n => { if (!levels.has(n.id())) levels.set(n.id(), 0); });
+
+    // Group by level
+    const byLevel = new Map();
+    for (const [id, level] of levels) {
+      if (!byLevel.has(level)) byLevel.set(level, []);
+      byLevel.get(level).push(id);
+    }
+
+    // Compute positions: level 0 at top, increasing down
+    const levelSpacing = 80;
+    const nodeSpacing = 80;
+    const positions = {};
+    for (const [level, ids] of byLevel) {
+      const y = level * levelSpacing;
+      const totalWidth = (ids.length - 1) * nodeSpacing;
+      const startX = -totalWidth / 2;
+      ids.forEach((id, i) => { positions[id] = { x: startX + i * nodeSpacing, y }; });
+    }
+
+    this.cy.layout({
+      name: 'preset',
+      positions: node => positions[node.id()] || { x: 0, y: 0 },
       animate: false,
       fit: true,
       padding: 20,
@@ -774,7 +839,7 @@ export class Panel {
   setPathTracking(enabled) {
     this.pathTrackingEnabled = enabled;
     if (enabled) {
-      this._recomputePathTracking();
+      this._recomputePathTrackingAsync();
     } else {
       this._pathTags = null;
       this._effectiveExclusions = null;
@@ -798,7 +863,7 @@ export class Panel {
     if (!current.includes(serializedTag)) {
       this.exclusions = { ...this.exclusions, [edgeKey]: [...current, serializedTag] };
     }
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._emitChange();
   }
 
@@ -814,7 +879,7 @@ export class Panel {
       newExclusions[edgeKey] = updated;
     }
     this.exclusions = newExclusions;
-    this._recomputePathTracking();
+    this._recomputePathTrackingAsync();
     this._emitChange();
   }
 
@@ -828,6 +893,38 @@ export class Panel {
     return result;
   }
 
+  /** Remove exclusion entries for tags that no longer exist in the current graph */
+  _cleanupStaleExclusions() {
+    if (!this._pathTags) return;
+    const specialTypes = this.template?.specialTypes || [];
+    const cleaned = {};
+    for (const [edgeKey, tags] of Object.entries(this.exclusions)) {
+      const edgeTags = this._pathTags.get(edgeKey);
+      if (!edgeTags || edgeTags.length === 0) continue;
+      const validTagSet = new Set(edgeTags.map(t => serializeTag(t, specialTypes)));
+      const validTags = tags.filter(t => validTagSet.has(t));
+      if (validTags.length > 0) cleaned[edgeKey] = validTags;
+    }
+    this.exclusions = cleaned;
+  }
+
+  /** Toggle processing indicator on the panel element */
+  _setProcessing(on) {
+    this._processingCount = on
+      ? this._processingCount + 1
+      : Math.max(0, this._processingCount - 1);
+    this.panelEl?.classList.toggle('processing', this._processingCount > 0);
+  }
+
+  /** Async wrapper around _recomputePathTracking — shows processing indicator, yields to paint first */
+  async _recomputePathTrackingAsync() {
+    if (!this.pathTrackingEnabled) return;
+    this._setProcessing(true);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    try { this._recomputePathTracking(); }
+    finally { this._setProcessing(false); }
+  }
+
   /** Recompute path tags and effective exclusions, then update visuals */
   _recomputePathTracking() {
     if (!this.pathTrackingEnabled) return;
@@ -836,8 +933,23 @@ export class Panel {
 
     this._pathTags = computePathTags(this.graph, specialTypes);
     this._effectiveExclusions = propagateExclusions(this.graph, this.exclusions, this._pathTags, specialTypes);
+    this._cleanupStaleExclusions();
+    // Re-propagate after cleanup to get accurate effective exclusions
+    this._effectiveExclusions = propagateExclusions(this.graph, this.exclusions, this._pathTags, specialTypes);
     this._applyTrackingVisuals();
     this._updateTrackingOverlay();
+    this._flashTrackingIndicator();
+  }
+
+  /** Briefly flash the panel info element to indicate path tracking was recomputed */
+  _flashTrackingIndicator() {
+    const el = this.panelEl?.querySelector('.panel-info');
+    if (!el) return;
+    el.classList.remove('tracking-flash');
+    // Force reflow to restart animation
+    void el.offsetWidth;
+    el.classList.add('tracking-flash');
+    setTimeout(() => el.classList.remove('tracking-flash'), 300);
   }
 
   /** Apply tracking visual classes and tooltip data */

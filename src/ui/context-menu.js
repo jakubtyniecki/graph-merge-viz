@@ -271,8 +271,8 @@ function buildEdgeMenu(panel, edge) {
       const serTag = (tag) => pathSerializeTag(tag, specialTypes);
       const fmtTag = (tag) => pathFormatTag(tag, specialTypes, panel.template?.nodeTypes || []);
 
-      // Show up to 3 individual tag toggles; if more, show dialog
-      if (tags.length <= 3) {
+      // Show up to 6 individual tag toggles; if more, show dialog
+      if (tags.length <= 6) {
         for (const tag of tags) {
           const serialized = serTag(tag);
           const isDirect = directExcluded.has(serialized);
@@ -285,9 +285,8 @@ function buildEdgeMenu(panel, edge) {
             });
           } else if (isPropagated) {
             items.push({
-              label: `Excluded ${label} ↑ (from source edge)`,
-              disabled: true,
-              action: () => {},
+              label: `Excluded ${label} (inherited)`,
+              action: () => exclusionDialog(panel, edgeKey),
             });
           } else {
             items.push({
@@ -298,7 +297,7 @@ function buildEdgeMenu(panel, edge) {
         }
       } else {
         items.push({
-          label: 'Manage Exclusions...',
+          label: 'Exclusions...',
           action: () => exclusionDialog(panel, edgeKey),
         });
       }

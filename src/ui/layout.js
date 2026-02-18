@@ -24,6 +24,7 @@ export class LayoutManager {
     this.tree = null;
     this._zoomedPanelId = null;
     this._zoomSavedStates = new Map();
+    this.mergeStrategies = {};
   }
 
   /** Initialize with default 2-panel split (vertical on wide, horizontal on narrow) */
@@ -43,15 +44,19 @@ export class LayoutManager {
 
   /** Get layout for serialization */
   getLayout() {
-    return { tree: this.tree, nextId: this.nextId };
+    return { tree: this.tree, nextId: this.nextId, mergeStrategies: this.mergeStrategies };
   }
 
   /** Restore layout from saved data */
   setLayout(layout) {
     this.tree = layout.tree;
     this.nextId = layout.nextId;
+    this.mergeStrategies = layout.mergeStrategies || {};
     this.render();
   }
+
+  getMergeStrategies() { return this.mergeStrategies; }
+  setMergeStrategies(map) { this.mergeStrategies = map || {}; }
 
   /** Get all panel IDs in the tree */
   getAllPanelIds() {
@@ -221,6 +226,14 @@ export class LayoutManager {
     header.className = 'panel-header';
     header.innerHTML = `
       <span class="panel-name" title="Click to rename">${displayName}</span>
+      <span class="panel-header-actions">
+        <button data-action="undo" class="btn-icon btn-header-icon" title="Undo (Ctrl+Z)">&#x2190;</button>
+        <button data-action="redo" class="btn-icon btn-header-icon" title="Redo (Ctrl+Shift+Z)">&#x2192;</button>
+        <span class="action-separator-sm"></span>
+        <button data-action="refresh" class="btn-icon btn-header-icon" title="Re-layout">&#x21BB;</button>
+        <button data-action="panel-options" class="btn-icon btn-header-icon" title="Panel options">&#x2699;</button>
+        <span class="processing-indicator" title="Processing...">&#x27F3;</span>
+      </span>
       <span class="panel-info"></span>
       <span class="panel-header-btns">
         <span class="panel-split-group">
@@ -278,22 +291,17 @@ export class LayoutManager {
     actions.className = 'panel-actions';
     actions.innerHTML = `
       <span class="panel-actions-left">
-        <button data-action="add-node" class="btn-add" title="Add a new labeled node to the graph"><span class="btn-label">+ Node</span><span class="btn-icon-only">+N</span></button>
-        <button data-action="add-edge" class="btn-add" title="Add a new directed edge between two existing nodes"><span class="btn-label">+ Edge</span><span class="btn-icon-only">+E</span></button>
+        <button data-action="add-node" class="btn-add" title="Add a new labeled node to the graph">+N</button>
+        <button data-action="add-edge" class="btn-add" title="Add a new directed edge between two existing nodes">+E</button>
         <span class="action-separator"></span>
-        <button data-action="approve" class="btn-approve" title="Snapshot current state as baseline and clear all diffs"><span class="btn-label">Approve</span><span class="btn-icon-only">&#x2713;</span></button>
-        <button data-action="restore" class="btn-restore" title="Revert graph to last approved state (undo all changes since approval)"><span class="btn-label">Restore</span><span class="btn-icon-only">&#x238C;</span></button>
+        <button data-action="approve" class="btn-approve" title="Snapshot current state as baseline and clear all diffs">&#x2713;</button>
+        <button data-action="restore" class="btn-restore" title="Revert graph to last approved state (undo all changes since approval)">&#x21BA;</button>
         <span class="action-separator"></span>
-        <button data-action="clear" class="btn-clear" title="Reset panel to empty state (clears graph, approval history, and diffs)"><span class="btn-label">Clear</span><span class="btn-icon-only">&#x232B;</span></button>
+        <button data-action="clear" class="btn-clear" title="Reset panel to empty state (clears graph, approval history, and diffs)">&#x232B;</button>
       </span>
       <span class="panel-actions-right">
         <button data-action="changeset" class="btn-icon" title="View pending changeset summary">&#x24D8;</button>
         <button data-action="changelog" class="btn-icon" title="View approval history">&#x2630;</button>
-        <button data-action="refresh" class="btn-icon" title="Re-layout and resize the graph canvas">&#x21BB;</button>
-        <span class="action-separator"></span>
-        <button data-action="undo" class="btn-icon" title="Undo last graph operation (Ctrl+Z)">&#x21B6;</button>
-        <button data-action="redo" class="btn-icon" title="Redo last undone operation (Ctrl+Shift+Z)">&#x21B7;</button>
-        <span class="action-separator"></span>
         <button data-action="import" class="btn-icon" title="Import graph from a JSON file">&#x21A5;</button>
         <button data-action="export" class="btn-icon" title="Export current graph as a JSON file">&#x21A7;</button>
       </span>
@@ -403,23 +411,29 @@ export class LayoutManager {
       for (const leftPanel of leftZone.panels) {
         for (const rightPanel of rightZone.panels) {
           // Push: left → right
+          const pushKey = `${leftPanel.id}→${rightPanel.id}`;
+          const pushStrat = this.mergeStrategies[pushKey] || 'mirror';
           const pushBtn = document.createElement('button');
           pushBtn.className = 'merge-btn';
-          pushBtn.textContent = `${leftPanel.name} ${pushArrow} ${rightPanel.name}`;
-          pushBtn.title = `Push ${leftPanel.name} graph into ${rightPanel.name}. Source must be approved first.`;
+          pushBtn.innerHTML = `<span>${leftPanel.name} ${pushArrow} ${rightPanel.name}</span><span class="merge-strategy-badge">${pushStrat === 'sync' ? '(S)' : '(M)'}</span>`;
+          pushBtn.title = `Push ${leftPanel.name} into ${rightPanel.name}. Right-click to change strategy.`;
           pushBtn.dataset.mergeSource = leftPanel.id;
           pushBtn.dataset.mergeTarget = rightPanel.id;
           pushBtn.onclick = () => this.onMerge(leftPanel.id, rightPanel.id);
+          pushBtn.addEventListener('contextmenu', e => { e.preventDefault(); this._showStrategyPicker(pushKey, pushBtn); });
           zoneEl.appendChild(pushBtn);
 
           // Pull: right → left
+          const pullKey = `${rightPanel.id}→${leftPanel.id}`;
+          const pullStrat = this.mergeStrategies[pullKey] || 'mirror';
           const pullBtn = document.createElement('button');
           pullBtn.className = 'merge-btn';
-          pullBtn.textContent = `${leftPanel.name} ${pullArrow} ${rightPanel.name}`;
-          pullBtn.title = `Pull ${rightPanel.name} graph into ${leftPanel.name}. Source must be approved first.`;
+          pullBtn.innerHTML = `<span>${leftPanel.name} ${pullArrow} ${rightPanel.name}</span><span class="merge-strategy-badge">${pullStrat === 'sync' ? '(S)' : '(M)'}</span>`;
+          pullBtn.title = `Pull ${rightPanel.name} into ${leftPanel.name}. Right-click to change strategy.`;
           pullBtn.dataset.mergeSource = rightPanel.id;
           pullBtn.dataset.mergeTarget = leftPanel.id;
           pullBtn.onclick = () => this.onMerge(rightPanel.id, leftPanel.id);
+          pullBtn.addEventListener('contextmenu', e => { e.preventDefault(); this._showStrategyPicker(pullKey, pullBtn); });
           zoneEl.appendChild(pullBtn);
         }
       }
@@ -581,6 +595,40 @@ export class LayoutManager {
       document.addEventListener('touchend', onTouchEnd);
       document.addEventListener('touchcancel', onTouchEnd);
     });
+  }
+
+  /** Show a floating strategy picker near the given merge button */
+  _showStrategyPicker(key, anchorBtn) {
+    document.querySelector('.merge-strategy-picker')?.remove();
+    const current = this.mergeStrategies[key] || 'mirror';
+    const picker = document.createElement('div');
+    picker.className = 'merge-strategy-picker';
+    const rect = anchorBtn.getBoundingClientRect();
+    picker.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;z-index:1000`;
+    picker.innerHTML = `
+      <div class="strategy-option${current === 'mirror' ? ' active' : ''}" data-strat="mirror">${current === 'mirror' ? '✓ ' : ''}Mirror (M)</div>
+      <div class="strategy-option${current === 'sync' ? ' active' : ''}" data-strat="sync">${current === 'sync' ? '✓ ' : ''}Sync (S)</div>
+    `;
+    document.body.appendChild(picker);
+    picker.querySelectorAll('.strategy-option').forEach(opt => {
+      opt.onclick = e => {
+        e.stopPropagation();
+        const strat = opt.dataset.strat;
+        if (strat === 'mirror') {
+          delete this.mergeStrategies[key];
+        } else {
+          this.mergeStrategies[key] = strat;
+        }
+        const badge = anchorBtn.querySelector('.merge-strategy-badge');
+        if (badge) badge.textContent = strat === 'sync' ? '(S)' : '(M)';
+        picker.remove();
+        window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+      };
+    });
+    const dismiss = e => {
+      if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('mousedown', dismiss); }
+    };
+    setTimeout(() => document.addEventListener('mousedown', dismiss), 0);
   }
 
   /** Update merge button colors based on source panel clean/dirty state */

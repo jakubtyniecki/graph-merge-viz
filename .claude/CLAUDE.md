@@ -2,7 +2,7 @@
 
 **GitHub Repo:** https://github.com/jakubtyniecki/graph-merge-viz (private)
 **Branch:** master (single branch, keep clean)
-**Last Updated:** 2026-02-18 (template system: typed nodes/edges + graph constraints)
+**Last Updated:** 2026-02-18 (UI polish: template modal, panel header actions, icon updates)
 
 ---
 
@@ -18,6 +18,81 @@
 ## Key Architecture
 
 ### Recent Changes
+
+**2026-02-18: UI Polish — Template Modal, Panel Header Actions, Icon Updates**
+
+1. **Template Management Modal** — `src/ui/template-ui.js` (full rewrite)
+   - Replaced dropdown+hamburger with `templateManagementModal()` — centered dialog with template list
+   - `setupTemplateUI()` no longer takes a callback; global template selection no longer applies to current session
+   - Modal has: list view, Add (inline form with graph type dropdown), Remove (confirm), Edit, Copy, Import, Export
+   - `editTemplateDialog` called with `isSessionTemplate=false` → full specialTypes editing
+
+2. **Panel Header Actions** — `src/ui/layout.js`
+   - Undo (←), Redo (→), Refresh (↻) moved from action bar to panel header (`.panel-header-actions` span)
+   - Action bar (`panel-actions-right`): now only changeset, changelog, import, export, gear
+
+3. **Icon Updates** — `src/ui/layout.js`
+   - Restore: `&#x238C;` (⎌) → `&#x21BA;` (↺)
+   - H-split: `&#x2195;` (↕) → `&#x2261;` (≡)
+   - Undo/Redo in header: `&#x2190;` (←) / `&#x2192;` (→)
+
+4. **Type Enforcement** — `src/ui/dialogs.js`
+   - `addNodeDialog`, `addEdgeDialog`, `editSelectedDialog`: removed `(no type)` option when types exist
+
+5. **Template Dialog Improvements** — `src/ui/dialogs.js`
+   - Placeholders: "Node Type" / "Edge Type" instead of "Type label"
+   - Focus handler selects all text on input focus
+   - `isSessionTemplate=true`: hides delete buttons and Add Type buttons (color/label editing only)
+   - `openDialog` and `closeDialog` are now exported
+
+6. **Other** — `src/ui/session.js`, `src/ui/status-bar.js`, `src/index.html`
+   - `+ Panel` button moved from header to session controls (before `?`)
+   - Status bar compact: `15n 12e 4p 2s` instead of verbose text
+   - Header: `+ Panel` section removed; Template section → `Templates` button
+
+**2026-02-18: Path Tracking + Per-Panel Options**
+
+1. **New Files**
+   - `src/graph/path-tracking.js` — `computePathTags()`, `propagateExclusions()`, `isNodeFullyExcluded()`, `mergeExclusions()`, `formatPathTag()`, `serializeTag()`
+
+2. **Per-Panel Layout Algorithm (Phase 1)**
+   - Removed global `#layout-algo` select from header; `+ Panel` button moved to its own header section
+   - Panel now has `layoutAlgorithm` property (default `'fcose'`), persisted in `getState()`/`setState()`
+   - New `setLayoutAlgorithm(algo)` method; `_runLayout()` uses `this.layoutAlgorithm` instead of `window.__layoutAlgorithm`
+   - Gear icon ⚙ in panel action bar (`data-action="panel-options"`) opens `panelOptionsDialog(panel)`
+   - `panelOptionsDialog` shows layout dropdown + path tracking toggle (for DAG with specialTypes)
+   - Session migration: old sessions with top-level `layoutAlgorithm` propagate to panel states
+
+3. **Template `specialTypes` (Phase 2)**
+   - `defaultTemplate()` and `createTemplate()` now include `specialTypes: []` (ordered node type ID array)
+   - New `setSpecialTypes(template, typeIds)` pure function
+   - Session migration adds `specialTypes: []` to templates that lack it
+
+4. **Path Tracking State (Phase 3)**
+   - Panel properties: `pathTrackingEnabled`, `showExclusions`, `exclusions: {}`, `_pathTags`, `_effectiveExclusions`
+   - History format changed to `{ graph, exclusions }` with backward-compat guard via `_historyGraph()`/`_historyExclusions()`
+   - `approve()` snapshots `exclusions` in approval history entries
+   - `receiveMerge(graph, dir, incomingExclusions, sourceTracked)` and `pasteSubgraph()` accept exclusions params
+   - Clipboard carries `_clipboardExclusions` via `panel.getRelevantExclusions(subgraph)`
+   - Session migration adds tracking fields to old panel states
+
+5. **Visual Integration (Phase 4)**
+   - CSS classes: `.edge-excluded` (dashed), `.edge-all-excluded` (dashed + dimmed), `.node-fully-excluded` (dotted border), `.tracking-hidden` (display:none)
+   - Edge hover tooltip via `.path-tooltip` div appended to `this.container`
+   - Tracking overlay (`.tracking-overlay`) with "Show exclusions" checkbox in bottom-left of canvas
+   - `_applyTrackingVisuals()`, `_applyExclusionVisibility()`, `_ensureTrackingOverlay()`, `_updateTrackingOverlay()`
+
+6. **Exclusion UI (Phase 5)**
+   - Edge context menu: up to 3 individual Exclude/Include items; "Manage Exclusions..." for 4+ tags
+   - Node context menu: "Include All Paths" for fully excluded nodes
+   - `exclusionDialog(panel, edgeKey)`: checkbox list showing all tags, propagated vs. direct
+
+7. **Template Special Types UI (Phase 6)**
+   - `editTemplateDialog(template, onSave, isSessionTemplate)`: new third param
+   - When `isSessionTemplate=true`: specialTypes section is greyed out (locked)
+   - When DAG + has nodeTypes: shows "Path Tracking Types" with checkboxes + up/down ordering buttons
+   - Session's "Edit Template" menu passes `isSessionTemplate=true`
+   - `mergeExclusions()` called in merge/paste to combine source+target exclusions
 
 **2026-02-18: Template System — Typed Nodes/Edges + Graph Constraints**
 
@@ -136,8 +211,9 @@ src/
 │   ├── diff.js            # computeDiff(base, current) → DiffEntry[]
 │   ├── merge.js           # mergeGraphs(target, incoming) → Graph
 │   ├── serializer.js      # JSON import/export + validation (preserves type field)
-│   ├── template.js        # GRAPH_TYPES, defaultTemplate(), createTemplate(), type CRUD
-│   └── constraints.js     # validateEdgeAdd(), wouldCreateCycle(), hasCycle(), isConnected()
+│   ├── template.js        # GRAPH_TYPES, defaultTemplate(), createTemplate(), type CRUD, setSpecialTypes()
+│   ├── constraints.js     # validateEdgeAdd(), wouldCreateCycle(), hasCycle(), isConnected()
+│   └── path-tracking.js  # computePathTags(), propagateExclusions(), mergeExclusions(), formatPathTag(), serializeTag()
 │
 ├── ui/                    # Impure UI layer (DOM, Cytoscape, localStorage)
 │   ├── layout.js          # LayoutManager: recursive split tree + render
