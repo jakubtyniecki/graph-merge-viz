@@ -442,11 +442,6 @@ button:active {
   line-height: 1;
 }
 
-.panel-zoom-btn {
-  color: var(--accent);
-  border-color: var(--accent);
-}
-
 .panel-zoom-btn:hover {
   background: rgba(79, 195, 247, 0.2);
 }

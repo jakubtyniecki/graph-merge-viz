@@ -268,6 +268,7 @@ export class LayoutManager {
         <button class="panel-split-btn" data-split="h" title="Split this panel into two stacked panels">&#x2195;</button>
         <span class="panel-header-sep"></span>
         <button class="panel-zoom-btn" title="Toggle full-screen zoom on this panel (Escape to exit)">&#x2922;</button>
+        <span class="panel-header-sep"></span>
         <button class="panel-close-btn" title="Close this panel and remove it from the layout">&#x2715;</button>
       </span>
     `;

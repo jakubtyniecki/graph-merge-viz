@@ -398,3 +398,24 @@ test.describe('Approval history preview', () => {
     await page.locator('#dlg-close-x').click();
   });
 });
+
+// ─── Panel Header Polish ──────────────────────────────────────────────────────
+
+test.describe('Panel header polish', () => {
+  test('has separator between zoom and close buttons', async ({ page }) => {
+    await page.goto('/');
+    const headerRight = page.locator('.panel-header-right').first();
+    // Two separators: one between splits/zoom, one between zoom/close
+    await expect(headerRight.locator('.panel-header-sep')).toHaveCount(2);
+  });
+
+  test('zoom button has no accent color border', async ({ page }) => {
+    await page.goto('/');
+    const zoomBtn = page.locator('.panel-zoom-btn').first();
+    const borderColor = await zoomBtn.evaluate(el =>
+      getComputedStyle(el).borderColor
+    );
+    // Should NOT be the accent color #4fc3f7 (rgb(79, 195, 247))
+    expect(borderColor).not.toBe('rgb(79, 195, 247)');
+  });
+});
