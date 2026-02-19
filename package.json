@@ -1,6 +1,6 @@
 {
   "name": "@jakubtyniecki/graph-merge-viz",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "type": "module",
   "description": "Interactive web tool for learning graph merge algorithms through visual diff and approval workflows",
   "keywords": [
