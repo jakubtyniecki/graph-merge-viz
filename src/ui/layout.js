@@ -479,9 +479,11 @@ export class LayoutManager {
       const stratObj = this._getStrategy(key);
       const sourceName = this._getPanelName(sourceId);
       const targetName = this._getPanelName(targetId);
-      const btnText = leftPanelIds.has(sourceId)
-        ? `${sourceName} \u00BB ${targetName}`
-        : `${targetName} \u00AB ${sourceName}`;
+      const isLeft = leftPanelIds.has(sourceId);
+      const arrowIcon = isLeft ? '\u00BB' : '\u00AB';
+      const labelHtml = isLeft
+        ? `<span class="merge-btn-source">${sourceName}</span><span class="merge-btn-icon">${arrowIcon}</span><span class="merge-btn-target">${targetName}</span>`
+        : `<span class="merge-btn-target">${targetName}</span><span class="merge-btn-icon">${arrowIcon}</span><span class="merge-btn-source">${sourceName}</span>`;
 
       const isAdjacent = (leftPanelIds.has(sourceId) && rightPanelIds.has(targetId)) ||
                          (rightPanelIds.has(sourceId) && leftPanelIds.has(targetId));
@@ -490,7 +492,7 @@ export class LayoutManager {
       mergeBtn.className = 'merge-btn';
       if (stratObj.strategy === 'none') mergeBtn.classList.add('merge-btn-disabled');
       if (!isAdjacent) mergeBtn.classList.add('merge-btn-cross');
-      mergeBtn.innerHTML = `<span class="merge-btn-text">${btnText}</span><span class="merge-strategy-badge">${this._strategyBadge(stratObj.strategy)}</span>`;
+      mergeBtn.innerHTML = `<span class="merge-btn-labels">${labelHtml}</span><span class="merge-strategy-badge">${this._strategyBadge(stratObj.strategy)}</span>`;
       mergeBtn.title = `Merge ${sourceName} into ${targetName}`;
       mergeBtn.dataset.mergeSource = sourceId;
       mergeBtn.dataset.mergeTarget = targetId;

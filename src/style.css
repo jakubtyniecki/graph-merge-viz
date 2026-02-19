@@ -202,6 +202,36 @@ body {
   background: var(--surface);
   transition: opacity 0.15s, background 0.15s;
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.merge-btn-labels {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.merge-btn-source,
+.merge-btn-target {
+  font-size: 9px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 48px;
+}
+
+.merge-btn-icon {
+  font-size: 15px;
+  color: #fff !important;
+  flex-shrink: 0;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .merge-btn:hover {

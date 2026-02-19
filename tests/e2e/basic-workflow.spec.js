@@ -565,6 +565,16 @@ test.describe('Panel header polish', () => {
   });
 });
 
+// ─── Merge Button Icon Polish ────────────────────────────────────────────────
+
+test.describe('Merge button icon polish', () => {
+  test('merge button has structured icon and label spans', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.merge-btn .merge-btn-icon').first()).toBeVisible();
+    await expect(page.locator('.merge-btn .merge-btn-labels').first()).toBeVisible();
+  });
+});
+
 // ─── Cross-Panel Merge Buttons ───────────────────────────────────────────────
 
 test.describe('Cross-panel merge buttons', () => {
