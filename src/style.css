@@ -1451,14 +1451,14 @@ dialog:has(.preview-header) {
   color: #e05c5c;
 }
 
-/* ===== Merge button flat list (drag-and-drop) ===== */
+/* ===== Merge button flat list ===== */
 .merge-zone.merge-zone-flat {
   top: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 2px;
   padding: 4px 0;
   overflow-y: auto;
@@ -1480,7 +1480,7 @@ dialog:has(.preview-header) {
   overflow-x: auto;
   overflow-y: visible;
   padding: 0 4px;
-  justify-content: flex-start;
+  justify-content: center;
 }
 
 .merge-btn-row {

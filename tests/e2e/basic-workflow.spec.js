@@ -446,6 +446,18 @@ test.describe('Merge management modal', () => {
   });
 });
 
+// ─── Gutter Vertical Centering ───────────────────────────────────────────────
+
+test('merge zone content is vertically centered', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.panel-split-btn[data-split="v"]').first().dispatchEvent('click');
+  const zoneEl = page.locator('.merge-zone').first();
+  const justifyContent = await zoneEl.evaluate(el =>
+    getComputedStyle(el).justifyContent
+  );
+  expect(justifyContent).toBe('center');
+});
+
 // ─── Remove Right-Click Strategy Picker ──────────────────────────────────────
 
 test('right-click on merge button does not open strategy picker', async ({ page }) => {
