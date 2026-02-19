@@ -1,27 +1,26 @@
 # Graph Merge Visualizer
 
-An interactive visual learning tool for understanding graph merge algorithms. Create, edit, and merge directed graphs across 4 panels with real-time diff visualization.
-
-![Layout](https://via.placeholder.com/800x400/1a1a2e/4fc3f7?text=Graph+Merge+Visualizer)
+An interactive visual learning tool for understanding graph merge algorithms. Create, edit, and merge graphs across multiple panels with real-time diff visualization.
 
 ## Features
 
-- **4-Panel Workflow**: Work with multiple graphs simultaneously
-- **Visual Diffs**: See what changed (green = added, red = removed, orange = modified)
-- **Merge Logic**: Push graphs between panels with conflict resolution
+- **Dynamic Panel Layouts**: Split panels horizontally or vertically; zoom to focus; close when done
+- **Typed Graphs**: Nodes and edges have types with configurable colors; supports directed, acyclic, undirected, forest, and connected-undirected graph types
+- **Visual Diffs**: See what changed (green = added, red/dashed = removed, orange = modified)
+- **Merge Strategies**: Mirror, Push, Scoped, or None — configurable per merge button
+- **Merge Button Customization**: Add/delete/reorder merge buttons per gutter; right-click for options
 - **Approval System**: Approve changes to establish new baselines
-- **Session Management**: Named sessions saved in browser storage
-- **Copy/Paste**: Clone subgraphs between panels
+- **Path Tracking**: Exclude specific paths from DAG graphs with tag-based propagation
+- **Templates**: Define node/edge types and graph constraints; global templates or per-session
+- **Sessions**: Named sessions auto-saved to browser storage; save/restore full layout + state
+- **Copy/Paste**: Clone subgraphs between panels (Ctrl+C / Ctrl+V)
 - **Import/Export**: Save and load graphs as JSON
-- **Keyboard Shortcuts**: Efficient workflow with Ctrl+C/V, Delete, Escape
+- **Undo/Redo**: Per-panel history with Ctrl+Z / Ctrl+Shift+Z
 
 ## Quick Start
 
 ```bash
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
 
@@ -31,187 +30,129 @@ Open http://localhost:5173 in your browser.
 
 ### Creating a Graph
 
-1. Click **"+ Node"** in any panel
-2. Enter a label (e.g., "A") and optional properties (key=value format)
-3. Repeat to create more nodes
-4. Click **"+ Edge"** to connect nodes
-5. Select source and target nodes from dropdowns
+1. Click **"+ Node"** in a panel's action bar
+2. Enter a label and optional properties (key=value)
+3. Repeat; then click **"+ Edge"** to connect nodes
+4. Select source and target from dropdowns
 
 ### Understanding Diffs
 
-Every change shows up in color until you **Approve**:
+Every change shows color until you **Approve**:
 
-- 🟢 **Green** = Newly added
-- 🔴 **Red/Dashed** = Removed (ghost element)
-- 🟠 **Orange border** = Modified properties
+- **Green** = Newly added
+- **Red/Dashed** = Removed (ghost element)
+- **Orange border** = Modified properties
 
 Click **Approve** to accept changes and clear colors.
 
 ### Merging Graphs
 
-1. Create a graph in Panel 1.1
-2. Click the gutter button **"1.1 → 2.1"** to push it to Panel 2.1
-3. See the diff in Panel 2.1 (green additions)
-4. Edit Panel 2.1 to make more changes
-5. Push to Panel 3.1: **"2.1 → 3.1"**
-6. Experiment with different merge paths!
+1. Create graphs in two panels
+2. Click a merge button in the gutter between them to push one graph into the other
+3. See the diff in the target panel
+4. Right-click a merge button to choose a strategy: Mirror, Push, Scoped, or None
+5. Click `+` in the gutter to add merge buttons for arbitrary panel pairs
 
-### Directional Locking
+### Templates
 
-Once a panel has pending changes from a merge (e.g., "1.1 → 2.1"), it can only receive more merges from the **same direction** until you **Approve**.
+Templates define node/edge types (label + color) and graph constraints (directed/acyclic/undirected).
 
-Example:
-```
-✅ 1.1 → 2.1 (first merge, sets direction)
-✅ 1.1 → 2.1 (same direction, allowed)
-❌ 1.2 → 2.1 (different direction, BLOCKED)
-✅ Approve → Clear → Any direction allowed again
-```
+- Click **Templates** in the header to manage global templates
+- Session template: use the session menu (☰) → **Edit Template**
+- Templates travel with exported sessions
 
 ### Sessions
 
-**Save your work automatically**:
-- Sessions auto-save every 2 seconds
-- Create new sessions via header dropdown
-- Switch between sessions anytime
-- Rename or delete sessions as needed
+- Sessions auto-save every few seconds
+- Create new sessions via the session controls
+- Switch between sessions using the dropdown
+- Export/import sessions as JSON
 
 ### Keyboard Shortcuts
 
 | Shortcut | Action |
 |----------|--------|
+| `Ctrl+Z` | Undo last change |
+| `Ctrl+Shift+Z` | Redo |
 | `Ctrl+C` | Copy selected nodes/edges |
 | `Ctrl+V` | Paste to focused panel |
 | `Delete` | Delete selected elements |
-| `Escape` | Deselect all |
+| `Escape` | Deselect all / exit zoom mode |
 
 ## Production Deployment
 
 ```bash
-# Build for production
 npm run build
-
-# Serve production build
 npm start
 ```
 
-The app will be available at http://0.0.0.0:3000
+Available at http://0.0.0.0:3000
 
-### Environment Variables
-
-- `HOST`: Server host (default: `0.0.0.0`)
-- `PORT`: Server port (default: `3000`)
-
-Example:
 ```bash
 HOST=localhost PORT=8080 npm start
 ```
 
 ## Graph JSON Format
 
-Import/export graphs in this format:
-
 ```json
 {
   "nodes": [
-    { "label": "A", "props": { "color": "blue", "weight": "5" } },
-    { "label": "B", "props": {} }
+    { "label": "A", "props": {}, "type": "nt1" },
+    { "label": "B", "props": { "weight": "5" } }
   ],
   "edges": [
-    { "source": "A", "target": "B", "props": { "weight": "1" } }
+    { "source": "A", "target": "B", "props": {}, "type": "et1" }
   ]
 }
 ```
 
-**Rules**:
-- Node labels must be unique
-- Edge source/target must reference existing nodes
-- Properties are flat key-value strings
+**Rules**: unique node labels, source/target must exist, properties are flat key-value strings.
 
 ## Architecture
 
-- **Pure functional core**: Graph operations are immutable
-- **Cytoscape.js**: Graph rendering with force-directed layout
-- **LocalStorage**: Session persistence (5-10 MB limit)
-- **Vite**: Fast dev server with HMR
-- **Express**: Minimal production server
+- **Pure functional core** (`src/graph/`): immutable graph operations
+- **Cytoscape.js**: graph rendering with force-directed (fCoSE) layout
+- **LocalStorage**: session persistence (5–10 MB limit)
+- **Vite**: dev server with HMR; Express for production
 
-See `SPEC.md` for detailed technical documentation.
+See `.claude/SPEC.md` for detailed specification.
+
+## Testing
+
+```bash
+npm test              # Vitest unit tests (src/graph/)
+npm run test:coverage # Unit tests with coverage report
+npm run test:e2e      # Playwright E2E tests (starts dev server)
+```
+
+## File Structure
+
+```
+src/
+├── graph/             # Pure data layer
+│   ├── model.js       # Graph CRUD
+│   ├── diff.js        # Diff algorithm
+│   ├── merge.js       # Merge algorithm
+│   ├── serializer.js  # JSON import/export
+│   ├── template.js    # Template + type definitions
+│   ├── constraints.js # Graph constraint validation
+│   └── path-tracking.js  # Path tag computation + exclusion propagation
+├── ui/                # Impure UI layer
+│   ├── layout.js      # LayoutManager: split tree + gutters + merge buttons
+│   ├── panel.js       # Panel class (Cytoscape wrapper, state, merge)
+│   ├── dialogs.js     # Modal dialogs
+│   ├── session.js     # Session management
+│   ├── template-ui.js # Global template CRUD
+│   ├── clipboard.js   # Copy/paste subgraph
+│   └── toast.js       # Notifications
+└── cytoscape/
+    └── styles.js      # Base styles + template-driven styling
+```
 
 ## Browser Support
 
-- Chrome/Edge 90+
-- Firefox 90+
-- Safari 15+
-
-Requires native `<dialog>` element support.
-
-## Troubleshooting
-
-### Dev server not accessible from network
-
-Add your hostname to `vite.config.js`:
-
-```javascript
-server: {
-  host: '0.0.0.0',
-  allowedHosts: ['all', 'your-hostname.local'],
-}
-```
-
-### Session data lost
-
-Sessions are stored in browser LocalStorage. Clearing browser data will delete sessions. Export important graphs as JSON files.
-
-### Layout looks wrong
-
-Force-directed layouts can be chaotic for large graphs. Try:
-1. Approve changes to stabilize
-2. Reload the panel (import/export)
-3. Work with smaller subgraphs
-
-## Development
-
-```bash
-# Install dependencies
-npm install
-
-# Start dev server (HMR enabled)
-npm run dev
-
-# Build for production
-npm run build
-
-# Serve production build
-npm start
-```
-
-**File structure**:
-```
-src/
-├── graph/         # Pure data layer
-│   ├── model.js   # Graph CRUD operations
-│   ├── diff.js    # Diff algorithm
-│   ├── merge.js   # Merge algorithm
-│   └── serializer.js  # JSON import/export
-├── ui/            # Impure UI layer
-│   ├── panel.js   # Panel class (Cytoscape wrapper)
-│   ├── dialogs.js # Modal dialogs
-│   ├── session.js # Session management
-│   ├── clipboard.js  # Copy/paste
-│   └── toast.js   # Notifications
-└── cytoscape/
-    └── styles.js  # Graph styling
-```
+Chrome/Edge/Firefox/Safari 90+ with native `<dialog>` support.
 
 ## License
 
-ISC
-
-## Credits
-
-Built with:
-- [Cytoscape.js](https://js.cytoscape.org/) - Graph visualization
-- [cytoscape-fcose](https://github.com/iVis-at-Bilkent/cytoscape.js-fcose) - Force-directed layout
-- [Vite](https://vitejs.dev/) - Build tool
-- [Express](https://expressjs.com/) - Web server
+MIT

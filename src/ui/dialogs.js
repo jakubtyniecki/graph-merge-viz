@@ -201,8 +201,9 @@ export function renameDialog(currentName, panelEl = null) {
     `, panelEl);
     dlg.querySelector('#dlg-cancel').onclick = () => { closeDialog(); resolve(null); };
     dlg.querySelector('#dlg-ok').onclick = () => {
+      const newName = dlg.querySelector('#dlg-name').value.trim();
       closeDialog();
-      resolve(dlg.querySelector('#dlg-name').value.trim());
+      resolve(newName);
     };
     dlg.querySelector('#dlg-name').onkeydown = e => {
       if (e.key === 'Enter') dlg.querySelector('#dlg-ok').click();
