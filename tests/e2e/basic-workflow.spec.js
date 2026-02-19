@@ -524,6 +524,26 @@ test.describe('Edge edit exclusion cancel', () => {
   });
 });
 
+// ─── Scoped Merge Two-Column Picker ──────────────────────────────────────────
+
+test('scoped merge picker shows source and target columns', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.panel-split-btn[data-split="v"]').first().dispatchEvent('click');
+  await page.locator('.merge-gutter-settings').first().dispatchEvent('click');
+  await expect(page.locator('dialog[open]')).toBeVisible();
+
+  const stratSelect = page.locator('.mgmt-strat-select').first();
+  if (await stratSelect.count() > 0) {
+    // Select 'scoped' — should open the two-column picker
+    await stratSelect.selectOption('scoped');
+    // The picker dialog should appear with both Source and Target headings
+    await expect(page.locator('dialog[open]')).toBeVisible();
+    const dialogHtml = await page.locator('dialog[open]').innerHTML();
+    expect(dialogHtml).toContain('Target:');
+    expect(dialogHtml).toContain('Source:');
+  }
+});
+
 // ─── Panel Header Polish ──────────────────────────────────────────────────────
 
 test.describe('Panel header polish', () => {

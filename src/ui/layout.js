@@ -766,12 +766,13 @@ export class LayoutManager {
         }
 
         if (strat === 'scoped') {
-          // Open scope node picker to select target nodes
-          const targetId = key.split('→')[1];
+          // Open scope node picker to select scope nodes from both panels
+          const [sourceId, targetId] = key.split('\u2192');
           const panelsMap = this._getPanels ? this._getPanels() : null;
           const targetPanel = panelsMap?.get(targetId);
+          const sourcePanel = panelsMap?.get(sourceId);
           if (targetPanel) {
-            scopeNodePickerDialog(targetPanel, key, this.mergeStrategies, () => {
+            scopeNodePickerDialog(targetPanel, sourcePanel, key, this.mergeStrategies, () => {
               updateBtn();
               window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
             });
@@ -894,6 +895,18 @@ export class LayoutManager {
           }
           this._rerenderGutter(gutterKey);
           window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+          if (strat === 'scoped') {
+            const [sourceId, targetId] = key.split('\u2192');
+            const panelsMap = this._getPanels ? this._getPanels() : null;
+            const targetPanel = panelsMap?.get(targetId);
+            const sourcePanel = panelsMap?.get(sourceId);
+            if (targetPanel) {
+              scopeNodePickerDialog(targetPanel, sourcePanel, key, this.mergeStrategies, () => {
+                this._rerenderGutter(gutterKey);
+                window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+              });
+            }
+          }
         };
       });
     };

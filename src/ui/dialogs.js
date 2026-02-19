@@ -1183,42 +1183,56 @@ export function panelOptionsDialog(panel) {
 /** Show scope node picker for "Scoped" merge strategy.
  *  mergeStrategies[key] will be updated in-place on confirm.
  *  rerenderFn is called after confirm or cancel to refresh the button UI. */
-export function scopeNodePickerDialog(targetPanel, key, mergeStrategies, rerenderFn) {
+export function scopeNodePickerDialog(targetPanel, sourcePanel, key, mergeStrategies, rerenderFn) {
   const specialTypes = targetPanel.template?.specialTypes || [];
-  const allNodes = targetPanel.graph.nodes;
-  // When specialTypes are configured, filter to only those node types
-  const nodes = specialTypes.length > 0
-    ? allNodes.filter(n => specialTypes.includes(n.type))
-    : allNodes;
+
+  const filterNodes = (panel) => {
+    if (!panel) return [];
+    const all = panel.graph.nodes;
+    return specialTypes.length > 0 ? all.filter(n => specialTypes.includes(n.type)) : all;
+  };
+
+  const targetNodes = filterNodes(targetPanel);
+  const sourceNodes = filterNodes(sourcePanel);
 
   const currentObj = mergeStrategies[key];
   const currentScopeNodes = (currentObj && typeof currentObj === 'object') ? (currentObj.scopeNodes || []) : [];
   const hadExistingNodes = currentScopeNodes.length > 0;
 
-  let rows;
-  if (nodes.length === 0) {
-    if (specialTypes.length > 0) {
-      rows = '<p style="color:var(--text-muted);padding:8px 0">No special-type nodes found in target panel. Configure Path Tracking types in template settings.</p>';
-    } else {
-      rows = '<p style="color:var(--text-muted);padding:8px 0">No nodes in target panel.</p>';
+  const buildColumn = (nodes, emptyMsg) => {
+    if (nodes.length === 0) {
+      return `<p style="font-size:11px;color:var(--text-muted)">${emptyMsg}</p>`;
     }
-  } else {
-    rows = nodes.map(n => {
+    return nodes.map(n => {
       const checked = currentScopeNodes.includes(n.label) ? 'checked' : '';
-      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;font-size:12px">
-          <input type="checkbox" class="scope-node-cb" value="${n.label}" ${checked} style="width:auto;margin:0">
-          <span>${n.label}</span>
-        </div>`;
+      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:12px">
+        <input type="checkbox" class="scope-node-cb" value="${n.label}" ${checked} style="width:auto;margin:0">
+        <span>${n.label}</span>
+      </div>`;
     }).join('');
-  }
+  };
+
+  const noNodesMsg = specialTypes.length > 0 ? 'No special-type nodes' : 'No nodes';
+  const [sourceId, targetId] = key.split('\u2192');
 
   const dlg = openDialog(`
     <div class="dialog-header">
       <h3>Select Scope Nodes</h3>
       <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
     </div>
-    <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Select nodes in the target panel. Only upstream ancestors of these nodes will be merged.</p>
-    <div style="max-height:200px;overflow-y:auto;margin-bottom:8px">${rows}</div>
+    <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">
+      Select nodes from either panel. Only upstream ancestors of selected nodes (in source) will be merged.
+    </p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px">
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:6px">Target: ${targetId}</div>
+        <div style="max-height:180px;overflow-y:auto">${buildColumn(targetNodes, noNodesMsg)}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:600;color:var(--accent);margin-bottom:6px">Source: ${sourceId}</div>
+        <div style="max-height:180px;overflow-y:auto">${buildColumn(sourceNodes, noNodesMsg)}</div>
+      </div>
+    </div>
     <div class="dialog-actions">
       <button id="dlg-cancel">Cancel</button>
       <button id="dlg-ok" class="btn-primary">Apply</button>
