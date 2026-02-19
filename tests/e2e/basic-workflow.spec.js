@@ -565,6 +565,22 @@ test.describe('Panel header polish', () => {
   });
 });
 
+// ─── Session Template Special Types ─────────────────────────────────────────
+
+test.describe('Session template special types', () => {
+  test('session template special types are editable', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('#session-edit-template').dispatchEvent('click');
+    await expect(page.locator('dialog[open]')).toBeVisible();
+    const cbs = page.locator('.special-type-cb');
+    if (await cbs.count() > 0) {
+      const disabled = await cbs.first().getAttribute('disabled');
+      expect(disabled).toBeNull();
+    }
+    await page.locator('#dlg-close-x').click();
+  });
+});
+
 // ─── Merge Button Icon Polish ────────────────────────────────────────────────
 
 test.describe('Merge button icon polish', () => {

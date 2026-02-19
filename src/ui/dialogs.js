@@ -848,8 +848,8 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false, 
 
   const renderSpecialTypes = () => {
     if (!isDAG || local.nodeTypes.length === 0) return '';
-    const locked = isSessionTemplate;
-    const lockedNote = locked ? '<em style="font-size:10px;color:var(--text-muted)">Cannot change for active session</em>' : '';
+    const locked = false;
+    const lockedNote = '';
     const items = local.nodeTypes.map((nt) => {
       const stIdx = local.specialTypes.indexOf(nt.id);
       const isSelected = stIdx !== -1;
