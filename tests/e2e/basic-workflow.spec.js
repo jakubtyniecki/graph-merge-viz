@@ -565,6 +565,15 @@ test.describe('Panel header polish', () => {
   });
 });
 
+// ─── Panel Header Merge Direction ───────────────────────────────────────────
+
+test.describe('Panel header merge direction', () => {
+  test('panel header does not show merge direction after merge', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.merge-direction')).toHaveCount(0);
+  });
+});
+
 // ─── Session Template Special Types ─────────────────────────────────────────
 
 test.describe('Session template special types', () => {

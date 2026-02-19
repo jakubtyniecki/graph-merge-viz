@@ -719,10 +719,6 @@ export class Panel {
 
     const parts = [];
 
-    if (this.mergeDirection) {
-      parts.push(`<span class="merge-direction">${this.mergeDirection}</span>`);
-    }
-
     if (this.baseGraph && !this.isClean()) {
       const diffCount = computeDiff(this.baseGraph, this.graph).length;
       parts.push(`${diffCount} change${diffCount !== 1 ? 's' : ''}`);
