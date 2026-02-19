@@ -861,10 +861,21 @@ dialog:has(.preview-header) {
   white-space: pre-wrap;
 }
 
-.changelog-list {
-  max-height: 300px;
+/* Changelog split view */
+.changelog-split {
+  display: flex;
+  gap: 10px;
+  min-height: 200px;
+}
+
+.changelog-split-list {
+  flex: 0 0 240px;
   overflow-y: auto;
-  margin-bottom: 12px;
+  max-height: 400px;
+}
+
+.changelog-list {
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: rgba(0, 0, 0, 0.2);
@@ -873,14 +884,29 @@ dialog:has(.preview-header) {
 .changelog-entry {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
+  justify-content: space-between;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
 }
 
 .changelog-entry:last-child {
   border-bottom: none;
+}
+
+.changelog-entry.active {
+  background: var(--surface-hover);
+}
+
+.changelog-entry-label {
+  flex: 1;
+  margin-right: 8px;
+}
+
+dialog.changelog-with-preview {
+  min-width: 560px;
+  max-width: 90vw;
 }
 
 .changelog-entry.diff-added {

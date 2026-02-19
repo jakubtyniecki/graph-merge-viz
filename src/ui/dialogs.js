@@ -557,7 +557,7 @@ export function changesetSummaryDialog(panel) {
   `, panel.panelEl).querySelector('#dlg-close-x').onclick = closeDialog;
 }
 
-/** Show changelog dialog — always shows approval history */
+/** Show changelog dialog — split-view: list on left, inline preview on right */
 export function changelogDialog(panel) {
   const history = panel._approvalHistory || [];
 
@@ -567,50 +567,101 @@ export function changelogDialog(panel) {
         <h3>Approval History</h3>
         <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
       </div>
-      <p style="color: var(--text-muted); text-align: center; padding: 20px;">No approvals yet.</p>
+      <p style="color:var(--text-muted);text-align:center;padding:20px">No approvals yet.</p>
     `, panel.panelEl);
     dlg.querySelector('#dlg-close-x').onclick = closeDialog;
     return;
   }
 
-  let historyListHtml = '<div class="changelog-list">';
-  // Show newest first
+  let listHtml = '<div class="changelog-list">';
   for (let i = history.length - 1; i >= 0; i--) {
     const entry = history[i];
-    const timestamp = new Date(entry.timestamp);
-    const timeStr = timestamp.toLocaleTimeString();
-    const num = i + 1;
-
-    historyListHtml += `
-      <div class="changelog-entry" style="display: flex; align-items: center; justify-content: space-between; padding: 8px;">
-        <span style="font-family: 'Courier New', monospace; font-size: 11px;">
-          #${num} ${timeStr} <span style="color: var(--text-muted);">${entry.diffSummary}</span>
-        </span>
-        <button class="btn-preview" data-index="${i}" style="font-size: 11px; padding: 4px 8px;">Preview</button>
-      </div>
-    `;
+    const timeStr = new Date(entry.timestamp).toLocaleTimeString();
+    listHtml += `
+      <div class="changelog-entry" data-index="${i}">
+        <span class="changelog-entry-label">#${i + 1} ${timeStr} <span style="color:var(--text-muted)">${entry.diffSummary}</span></span>
+        <button class="btn-preview" data-index="${i}">Preview</button>
+      </div>`;
   }
-  historyListHtml += '</div>';
+  listHtml += '</div>';
 
   const dlg = openDialog(`
     <div class="dialog-header">
       <h3>Approval History</h3>
       <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
     </div>
-    ${historyListHtml}
+    <div class="changelog-split">
+      <div class="changelog-split-list">${listHtml}</div>
+      <div id="changelog-preview-pane" style="display:none;flex:1;flex-direction:column;min-width:260px"></div>
+    </div>
   `, panel.panelEl);
 
-  // Wire preview buttons
+  let previewCy = null;
+
+  const closePreview = () => {
+    if (previewCy) { try { previewCy.destroy(); } catch (e) {} previewCy = null; }
+    const pane = dlg.querySelector('#changelog-preview-pane');
+    pane.style.display = 'none';
+    pane.innerHTML = '';
+    dlg.classList.remove('changelog-with-preview');
+    dlg.querySelectorAll('.changelog-entry').forEach(el => el.classList.remove('active'));
+  };
+
   dlg.querySelectorAll('.btn-preview').forEach(btn => {
     btn.onclick = () => {
       const index = parseInt(btn.dataset.index);
       const entry = history[index];
-      closeDialog();
-      approvalPreviewDialog(entry, index, panel);
+      const pane = dlg.querySelector('#changelog-preview-pane');
+      if (previewCy) { try { previewCy.destroy(); } catch (e) {} previewCy = null; }
+
+      dlg.querySelectorAll('.changelog-entry').forEach(el => el.classList.remove('active'));
+      btn.closest('.changelog-entry').classList.add('active');
+
+      const title = `#${index + 1} \u2014 ${new Date(entry.timestamp).toLocaleTimeString()}`;
+      pane.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:6px">
+          <span style="font-size:11px;font-weight:600">${title}</span>
+          <button id="preview-close-pane" class="btn-close-icon" title="Close preview">&#x2715;</button>
+        </div>
+        <div id="preview-inline-canvas" style="flex:1;min-height:220px;border:1px solid var(--border);border-radius:3px"></div>
+      `;
+      pane.style.display = 'flex';
+      dlg.classList.add('changelog-with-preview');
+
+      const layoutName = (panel.layoutAlgorithm && panel.layoutAlgorithm !== 'level-by-level')
+        ? panel.layoutAlgorithm : 'fcose';
+
+      const elements = [];
+      for (const node of entry.graph.nodes) {
+        elements.push({ group: 'nodes', data: { id: node.label, label: node.label } });
+      }
+      for (const edge of entry.graph.edges) {
+        const key = `${edge.source}\u2192${edge.target}`;
+        elements.push({ group: 'edges', data: { id: key, source: edge.source, target: edge.target } });
+      }
+
+      requestAnimationFrame(() => {
+        const canvasEl = pane.querySelector('#preview-inline-canvas');
+        if (!canvasEl || !canvasEl.isConnected) return;
+        previewCy = cytoscape({
+          container: canvasEl,
+          elements,
+          style: baseStyles,
+          layout: { name: layoutName, animate: false, fit: true, padding: 20 },
+          autoungrabify: true,
+          userZoomingEnabled: true,
+          userPanningEnabled: true,
+        });
+      });
+
+      pane.querySelector('#preview-close-pane').onclick = closePreview;
     };
   });
 
-  dlg.querySelector('#dlg-close-x').onclick = closeDialog;
+  dlg.querySelector('#dlg-close-x').onclick = () => {
+    closePreview();
+    closeDialog();
+  };
 }
 
 /** Show enhanced approval preview with maximize/minimize and diff toggle */

@@ -368,10 +368,10 @@ test.describe('Approval history preview', () => {
     // Open changelog
     await page.locator('[data-action="changelog"]').first().click();
     await expect(page.locator('.changelog-entry')).toBeVisible();
-    // Open preview
+    // Open preview (now inline in split view)
     await page.locator('.btn-preview').first().click();
-    // Preview canvas should be visible
-    await expect(page.locator('#preview-canvas')).toBeVisible();
+    // Inline preview pane should be visible
+    await expect(page.locator('#changelog-preview-pane')).toBeVisible();
     await page.locator('#dlg-close-x').click();
   });
 });
@@ -562,6 +562,50 @@ test.describe('Panel header polish', () => {
     );
     // Should NOT be the accent color #4fc3f7 (rgb(79, 195, 247))
     expect(borderColor).not.toBe('rgb(79, 195, 247)');
+  });
+});
+
+// ─── Approval History Split View ────────────────────────────────────────────
+
+test.describe('Approval history split view', () => {
+  test('clicking preview keeps history list visible', async ({ page }) => {
+    await page.goto('/');
+    const panelEl = page.locator('.panel').first();
+    // Add a node and approve to get a history entry
+    await panelEl.locator('[data-action="add-node"]').dispatchEvent('click');
+    await page.locator('#dlg-label').fill('X');
+    await page.locator('#dlg-ok').click();
+    await panelEl.locator('[data-action="approve"]').dispatchEvent('click');
+    await page.locator('#dlg-ok').click();  // confirm approve dialog
+
+    await panelEl.locator('[data-action="changelog"]').dispatchEvent('click');
+    await expect(page.locator('dialog[open]')).toBeVisible();
+
+    await page.locator('.btn-preview').first().dispatchEvent('click');
+
+    // Dialog still open, list still visible, preview pane appears
+    await expect(page.locator('dialog[open]')).toBeVisible();
+    await expect(page.locator('.changelog-list')).toBeVisible();
+    await expect(page.locator('#changelog-preview-pane')).toBeVisible();
+  });
+
+  test('closing preview pane collapses it without closing dialog', async ({ page }) => {
+    await page.goto('/');
+    const panelEl = page.locator('.panel').first();
+    await panelEl.locator('[data-action="add-node"]').dispatchEvent('click');
+    await page.locator('#dlg-label').fill('Y');
+    await page.locator('#dlg-ok').click();
+    await panelEl.locator('[data-action="approve"]').dispatchEvent('click');
+    await page.locator('#dlg-ok').click();  // confirm approve dialog
+
+    await panelEl.locator('[data-action="changelog"]').dispatchEvent('click');
+    await page.locator('.btn-preview').first().dispatchEvent('click');
+    await expect(page.locator('#changelog-preview-pane')).toBeVisible();
+
+    await page.locator('#preview-close-pane').click();
+    await expect(page.locator('#changelog-preview-pane')).toBeHidden();
+    await expect(page.locator('dialog[open]')).toBeVisible();
+    await page.locator('#dlg-close-x').click();
   });
 });
 
