@@ -156,12 +156,14 @@ export function templateManagementModal() {
     const template = allTemplates[selectedName];
     if (!template) return;
     closeDialog();
+    const capturedName = selectedName;
     editTemplateDialog(JSON.parse(JSON.stringify(template)), (updated) => {
       const latest = loadGlobalTemplates();
-      latest[selectedName] = updated;
+      latest[capturedName] = updated;
       saveGlobalTemplates(latest);
       showToast('Template updated', 'success');
-    }, false); // isSessionTemplate=false — full editing
+      templateManagementModal(); // Return to list after save
+    }, false, () => templateManagementModal()); // onBack: return to list
   };
 
   dlg.querySelector('#tpl-copy').onclick = () => {

@@ -14,6 +14,7 @@ export const defaultTemplate = () => ({
   nodeTypes: [],
   edgeTypes: [],
   specialTypes: [],
+  defaultLayoutAlgorithm: 'cose',
 });
 
 /** Create a new named template */
@@ -23,6 +24,7 @@ export const createTemplate = (name, graphType = 'UCG') => ({
   nodeTypes: [],
   edgeTypes: [],
   specialTypes: [],
+  defaultLayoutAlgorithm: 'cose',
 });
 
 /** Set special type IDs (ordered) for path tracking */
@@ -59,4 +61,22 @@ export const updateNodeType = (template, id, changes) => ({
 export const updateEdgeType = (template, id, changes) => ({
   ...template,
   edgeTypes: template.edgeTypes.map(et => et.id === id ? { ...et, ...changes } : et),
+});
+
+/** Set default layout algorithm for a template (returns new template) */
+export const setDefaultLayoutAlgorithm = (template, algo) => ({
+  ...template,
+  defaultLayoutAlgorithm: algo,
+});
+
+/** Migrate all nodes of oldTypeId to newTypeId (returns new graph) */
+export const migrateNodeType = (graph, oldTypeId, newTypeId) => ({
+  nodes: graph.nodes.map(n => n.type === oldTypeId ? { ...n, type: newTypeId } : n),
+  edges: [...graph.edges],
+});
+
+/** Migrate all edges of oldTypeId to newTypeId (returns new graph) */
+export const migrateEdgeType = (graph, oldTypeId, newTypeId) => ({
+  nodes: [...graph.nodes],
+  edges: graph.edges.map(e => e.type === oldTypeId ? { ...e, type: newTypeId } : e),
 });

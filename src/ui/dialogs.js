@@ -33,29 +33,52 @@ function expandNodeLabels(input) {
   return labels;
 }
 
-/** Attach drag-by-header behavior to a dialog element */
+/** Attach drag-by-header behavior to a dialog element (mouse + touch) */
 function makeDraggable(dlg, handle) {
-  const onMouseDown = (e) => {
-    if (e.target.closest('button, input, select, textarea')) return;
-    e.preventDefault();
+  const startDrag = (clientX, clientY) => {
     const rect = dlg.getBoundingClientRect();
-    const offsetX = e.clientX - rect.left;
-    const offsetY = e.clientY - rect.top;
-    const onMouseMove = (e) => {
+    const offsetX = clientX - rect.left;
+    const offsetY = clientY - rect.top;
+    const moveTo = (x, y) => {
       dlg.style.position = 'fixed';
       dlg.style.margin = '0';
       dlg.style.transform = 'none';
-      dlg.style.left = `${Math.max(0, e.clientX - offsetX)}px`;
-      dlg.style.top = `${Math.max(0, e.clientY - offsetY)}px`;
+      dlg.style.left = `${Math.max(0, x - offsetX)}px`;
+      dlg.style.top = `${Math.max(0, y - offsetY)}px`;
     };
+    return moveTo;
+  };
+
+  handle.addEventListener('mousedown', (e) => {
+    if (e.target.closest('button, input, select, textarea')) return;
+    e.preventDefault();
+    const moveTo = startDrag(e.clientX, e.clientY);
+    const onMouseMove = (e) => moveTo(e.clientX, e.clientY);
     const onMouseUp = () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
     };
     document.addEventListener('mousemove', onMouseMove);
     document.addEventListener('mouseup', onMouseUp);
-  };
-  handle.addEventListener('mousedown', onMouseDown);
+  });
+
+  handle.addEventListener('touchstart', (e) => {
+    if (e.target.closest('button, input, select, textarea')) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    const moveTo = startDrag(touch.clientX, touch.clientY);
+    const onTouchMove = (e) => {
+      e.preventDefault();
+      const t = e.touches[0];
+      moveTo(t.clientX, t.clientY);
+    };
+    const onTouchEnd = () => {
+      document.removeEventListener('touchmove', onTouchMove);
+      document.removeEventListener('touchend', onTouchEnd);
+    };
+    document.addEventListener('touchmove', onTouchMove, { passive: false });
+    document.addEventListener('touchend', onTouchEnd);
+  }, { passive: false });
 }
 
 // Shared dialog element
@@ -689,11 +712,15 @@ export function approvalPreviewDialog(entry, index, panel) {
     return elements;
   };
 
+  const layoutName = panel.layoutAlgorithm && panel.layoutAlgorithm !== 'level-by-level'
+    ? panel.layoutAlgorithm
+    : 'fcose';
+
   const cy = cytoscape({
     container: canvasEl,
     elements: buildApprovedElements(),
     style: baseStyles,
-    layout: { name: 'fcose', animate: false, fit: true, padding: 20 },
+    layout: { name: layoutName, animate: false, fit: true, padding: 20 },
     autoungrabify: true,
     userZoomingEnabled: true,
     userPanningEnabled: true,
@@ -713,7 +740,7 @@ export function approvalPreviewDialog(entry, index, panel) {
     cy.elements().remove();
     const newElements = mode === 'changeset' ? buildChangesetElements() : buildApprovedElements();
     cy.add(newElements);
-    cy.layout({ name: 'fcose', animate: false, fit: true, padding: 20 }).run();
+    cy.layout({ name: layoutName, animate: false, fit: true, padding: 20 }).run();
   };
 
   btnApproved.onclick = () => switchMode('approved');
@@ -768,8 +795,9 @@ function genId() {
   return `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
 }
 
-/** Edit the session template (node types + edge types + specialTypes). Calls onSave(newTemplate) on confirm. */
-export function editTemplateDialog(template, onSave, isSessionTemplate = false) {
+/** Edit the session template (node types + edge types + specialTypes). Calls onSave(newTemplate) on confirm.
+ *  onBack: optional callback for Cancel/X buttons — navigates back to list instead of closing. */
+export function editTemplateDialog(template, onSave, isSessionTemplate = false, onBack = null) {
   // Work on a local clone so Cancel does nothing
   let local = deepClone(template);
   if (!local.specialTypes) local.specialTypes = [];
@@ -778,12 +806,11 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false) 
 
   const renderRows = (types, kind) => types.map(t => {
     const placeholder = kind === 'node' ? 'Node Type' : 'Edge Type';
-    const deleteBtn = isSessionTemplate ? '' : `<button class="btn-delete-type" data-id="${t.id}" data-kind="${kind}" title="Delete">✕</button>`;
     return `
     <div class="type-row" data-id="${t.id}" data-kind="${kind}">
       <input type="text" class="type-label-input" value="${t.label}" placeholder="${placeholder}">
       <input type="color" class="type-color-input" value="${t.color || '#4fc3f7'}">
-      ${deleteBtn}
+      <button class="btn-delete-type" data-id="${t.id}" data-kind="${kind}" title="Delete">✕</button>
     </div>
   `;
   }).join('');
@@ -792,10 +819,11 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false) 
     if (!isDAG || local.nodeTypes.length === 0) return '';
     const locked = isSessionTemplate;
     const lockedNote = locked ? '<em style="font-size:10px;color:var(--text-muted)">Cannot change for active session</em>' : '';
-    const items = local.nodeTypes.map((nt, idx) => {
-      const isSelected = local.specialTypes.includes(nt.id);
-      const upDisabled = (idx === 0 || !isSelected || locked) ? 'disabled' : '';
-      const downDisabled = (idx === local.nodeTypes.length - 1 || !isSelected || locked) ? 'disabled' : '';
+    const items = local.nodeTypes.map((nt) => {
+      const stIdx = local.specialTypes.indexOf(nt.id);
+      const isSelected = stIdx !== -1;
+      const upDisabled = (!isSelected || stIdx <= 0 || locked) ? 'disabled' : '';
+      const downDisabled = (!isSelected || stIdx >= local.specialTypes.length - 1 || locked) ? 'disabled' : '';
       return `
         <div class="special-type-item">
           <input type="checkbox" class="special-type-cb" data-id="${nt.id}" ${isSelected ? 'checked' : ''} ${locked ? 'disabled' : ''}>
@@ -814,6 +842,15 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false) 
     `;
   };
 
+  const layoutAlgoOptions = [
+    { value: 'cose', label: 'COSE (force-directed)' },
+    { value: 'breadthfirst', label: 'Breadth-first' },
+    { value: 'circle', label: 'Circle' },
+    { value: 'grid', label: 'Grid' },
+    { value: 'concentric', label: 'Concentric' },
+    { value: 'dagre', label: 'Dagre (DAG only)' },
+  ];
+
   const buildHtml = () => `
     <div class="dialog-header">
       <h3>Edit Template</h3>
@@ -824,11 +861,15 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false) 
     </div>
     <div class="template-section-label">Node Types</div>
     <div id="node-types-list">${renderRows(local.nodeTypes, 'node')}</div>
-    ${isSessionTemplate ? '' : '<button id="add-node-type" class="btn-secondary btn-add-type">+ Add Node Type</button>'}
+    <button id="add-node-type" class="btn-secondary btn-add-type">+ Add Node Type</button>
     <div class="template-section-label">Edge Types</div>
     <div id="edge-types-list">${renderRows(local.edgeTypes, 'edge')}</div>
-    ${isSessionTemplate ? '' : '<button id="add-edge-type" class="btn-secondary btn-add-type">+ Add Edge Type</button>'}
+    <button id="add-edge-type" class="btn-secondary btn-add-type">+ Add Edge Type</button>
     ${renderSpecialTypes()}
+    <div class="template-section-label">Default Layout Algorithm</div>
+    <select id="default-layout-algo">
+      ${layoutAlgoOptions.map(o => `<option value="${o.value}" ${(local.defaultLayoutAlgorithm || 'cose') === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+    </select>
     <div class="dialog-actions">
       <button id="dlg-cancel">Cancel</button>
       <button id="dlg-ok" class="btn-primary">Save</button>
@@ -861,7 +902,7 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false) 
       }
     });
     // Collect special type selections before re-render
-    if (isDAG && !isSessionTemplate) {
+    if (isDAG) {
       local.specialTypes = [];
       dlg.querySelectorAll('.special-type-cb:checked').forEach(cb => {
         local.specialTypes.push(cb.dataset.id);
@@ -893,7 +934,7 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false) 
   };
 
   const wireSpecialTypeBtns = () => {
-    if (!isDAG || isSessionTemplate) return;
+    if (!isDAG) return;
     dlg.querySelectorAll('.st-up').forEach(btn => {
       btn.onclick = () => {
         const id = btn.dataset.id;
@@ -930,19 +971,17 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false) 
   wireDeleteBtns();
   wireSpecialTypeBtns();
 
-  if (!isSessionTemplate) {
-    dlg.querySelector('#add-node-type').onclick = () => {
-      rerender();
-      local.nodeTypes.push({ id: genId(), label: 'New Type', color: '#4fc3f7' });
-      rerender();
-    };
+  dlg.querySelector('#add-node-type').onclick = () => {
+    rerender();
+    local.nodeTypes.push({ id: genId(), label: 'New Type', color: '#4fc3f7' });
+    rerender();
+  };
 
-    dlg.querySelector('#add-edge-type').onclick = () => {
-      rerender();
-      local.edgeTypes.push({ id: genId(), label: 'New Type', color: '#5a6a8c' });
-      rerender();
-    };
-  }
+  dlg.querySelector('#add-edge-type').onclick = () => {
+    rerender();
+    local.edgeTypes.push({ id: genId(), label: 'New Type', color: '#5a6a8c' });
+    rerender();
+  };
 
   const collectAndSave = () => {
     dlg.querySelectorAll('.type-row').forEach(row => {
@@ -959,19 +998,22 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false) 
       }
     });
     // Collect special type selections
-    if (isDAG && !isSessionTemplate) {
+    if (isDAG) {
       local.specialTypes = [];
       dlg.querySelectorAll('.special-type-cb:checked').forEach(cb => {
         local.specialTypes.push(cb.dataset.id);
       });
     }
+    local.defaultLayoutAlgorithm = dlg.querySelector('#default-layout-algo').value;
     onSave(local);
     showToast('Template saved', 'success');
   };
 
+  const doCancel = onBack ? () => { closeDialog(); onBack(); } : closeDialog;
+
   dlg.querySelector('#dlg-ok').onclick = collectAndSave;
-  dlg.querySelector('#dlg-cancel').onclick = closeDialog;
-  dlg.querySelector('#dlg-close-x').onclick = closeDialog;
+  dlg.querySelector('#dlg-cancel').onclick = doCancel;
+  dlg.querySelector('#dlg-close-x').onclick = doCancel;
 }
 
 /** Show exclusion management dialog for a specific edge */
@@ -992,6 +1034,9 @@ export function exclusionDialog(panel, edgeKey) {
 
   const _serializeTag = (tag) => pathSerializeTag(tag, specialTypes);
   const _formatPathTag = (tag) => pathFormatTag(tag, specialTypes, template?.nodeTypes || []);
+
+  // Work on a local clone — Cancel discards, Save applies
+  let localExclusions = { ...panel.exclusions };
 
   const rows = tags.map(tag => {
     const serialized = _serializeTag(tag);
@@ -1024,16 +1069,26 @@ export function exclusionDialog(panel, edgeKey) {
 
   dlg.querySelector('#dlg-ok').onclick = () => {
     const checkboxes = dlg.querySelectorAll('.excl-cb');
+    const newTags = [];
     checkboxes.forEach(cb => {
       const serialized = cb.dataset.tag;
       const included = cb.checked;
-      const wasDirectExcluded = directExcluded.has(serialized);
-      if (!included && !wasDirectExcluded) {
-        panel.excludePathTag(edgeKey, serialized);
-      } else if (included && wasDirectExcluded) {
-        panel.includePathTag(edgeKey, serialized);
-      }
+      if (!included) newTags.push(serialized);
     });
+    // Apply: set exclusions for this edge (only direct, non-propagated)
+    const nonPropagatedExcluded = newTags.filter(t => {
+      // Only apply direct exclusions (not propagated)
+      const cb = dlg.querySelector(`.excl-cb[data-tag="${t}"]`);
+      return cb?.dataset.propagated !== 'true';
+    });
+    if (nonPropagatedExcluded.length > 0) {
+      localExclusions[edgeKey] = nonPropagatedExcluded;
+    } else {
+      delete localExclusions[edgeKey];
+    }
+    panel.exclusions = localExclusions;
+    panel._recomputePathTrackingAsync();
+    panel._emitChange();
     closeDialog();
   };
   dlg.querySelector('#dlg-cancel').onclick = closeDialog;

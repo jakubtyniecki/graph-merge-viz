@@ -193,6 +193,7 @@ body {
 .merge-btn {
   font-size: 10px;
   padding: 6px 8px;
+  min-height: 44px;
   border-radius: 3px;
   cursor: pointer;
   white-space: nowrap;
@@ -256,17 +257,50 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
+  padding: 4px 8px;
   background: rgba(0, 0, 0, 0.2);
   border-bottom: 1px solid var(--border);
-  min-height: 40px;
+  min-height: 36px;
   flex-shrink: 0;
 }
 
-.panel-name {
-  font-weight: 600;
-  font-size: 13px;
+.panel-header-left,
+.panel-header-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.panel-header-sep {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 3px;
+}
+
+/* Panel name now lives as a canvas overlay */
+.panel-name-overlay {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.45);
   color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  min-width: 44px;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+}
+
+.panel-name-overlay:hover {
+  background: rgba(79, 195, 247, 0.2);
 }
 
 .panel-info {
@@ -386,11 +420,11 @@ button:active {
   background: rgba(138, 43, 226, 0.3);
 }
 
-/* Panel header buttons */
+/* Panel header buttons — kept for compatibility, new layout uses panel-header-left/right */
 .panel-header-btns {
   display: flex;
-  gap: 12px;
-  margin-left: 8px;
+  gap: 4px;
+  align-items: center;
 }
 
 .panel-split-group,
@@ -569,6 +603,12 @@ dialog input, dialog select, dialog textarea {
 dialog textarea {
   min-height: 80px;
   resize: vertical;
+}
+
+/* Touch-friendly: dialog action buttons meet 44px minimum */
+dialog .dialog-actions button {
+  min-height: 44px;
+  padding: 8px 16px;
 }
 
 dialog .dialog-actions {
@@ -1143,7 +1183,7 @@ dialog:has(.preview-header) {
 
 .tracking-overlay {
   position: absolute;
-  bottom: 36px;
+  bottom: 4px;
   left: 8px;
   z-index: 10;
   background: rgba(22, 33, 62, 0.85);
@@ -1232,7 +1272,7 @@ dialog:has(.preview-header) {
   animation: tracking-pulse 0.3s ease;
 }
 
-/* ===== Panel header actions (undo/redo/refresh) ===== */
+/* ===== Panel header actions — kept for compatibility ===== */
 .panel-header-actions {
   display: flex;
   align-items: center;
@@ -1243,8 +1283,8 @@ dialog:has(.preview-header) {
 .btn-header-icon {
   font-size: 14px;
   padding: 2px 5px;
-  min-width: 24px;
-  min-height: 24px;
+  min-width: 28px;
+  min-height: 28px;
 }
 
 .action-separator-sm {
@@ -1315,13 +1355,13 @@ dialog:has(.preview-header) {
 /* ===== Approval timestamp overlay (canvas bottom-right) ===== */
 .approval-indicator {
   position: absolute;
-  bottom: 28px;
-  right: 6px;
+  bottom: 4px;
+  right: 8px;
   font-size: 10px;
   color: var(--text-muted);
-  opacity: 0.6;
+  opacity: 0.7;
   pointer-events: none;
-  z-index: 5;
+  z-index: 10;
   user-select: none;
 }
 
@@ -1472,29 +1512,64 @@ dialog:has(.preview-header) {
   cursor: grabbing;
 }
 
-.merge-btn-add {
+.merge-gutter-settings {
   background: none;
-  border: 1px dashed #5bb8f5;
-  color: #5bb8f5;
-  border-radius: 4px;
-  padding: 2px 10px;
-  cursor: pointer;
-  font-size: 13px;
-  margin-top: 4px;
-  width: auto;
-  pointer-events: auto;
-  min-height: unset;
-  white-space: nowrap;
-}
-
-.merge-btn-add:hover {
-  background: rgba(91, 184, 245, 0.1);
-}
-
-.merge-zone-empty {
+  border: 1px solid var(--border);
   color: var(--text-muted);
+  border-radius: 4px;
+  padding: 0;
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+  font-size: 16px;
+  margin-top: 4px;
+  pointer-events: auto;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.merge-gutter-settings:hover {
+  background: rgba(91, 184, 245, 0.1);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ===== Merge management modal rows ===== */
+.mgmt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mgmt-btn-label {
+  flex: 1;
+  font-size: 12px;
+  font-family: 'Courier New', monospace;
+}
+
+.mgmt-strat-select {
   font-size: 11px;
-  text-align: center;
-  padding: 4px;
-  pointer-events: none;
+  padding: 2px 4px;
+  width: auto;
+}
+
+.mgmt-delete-btn {
+  background: none;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: 12px;
+  min-width: 44px;
+  min-height: 32px;
+}
+
+.mgmt-delete-btn:hover {
+  background: rgba(244, 67, 54, 0.1);
 }

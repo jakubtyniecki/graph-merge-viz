@@ -6,7 +6,7 @@
  *   | { type: "split", direction: "h" | "v", children: [LayoutNode, LayoutNode], sizes: [number, number] }
  */
 
-import { renameDialog, infoDialog, scopeNodePickerDialog, addMergeButtonDialog } from './dialogs.js';
+import { renameDialog, infoDialog, scopeNodePickerDialog, addMergeButtonDialog, openDialog, closeDialog } from './dialogs.js';
 
 const MIN_PANEL_SIZE_PX = 200;
 
@@ -254,42 +254,24 @@ export class LayoutManager {
     const header = document.createElement('div');
     header.className = 'panel-header';
     header.innerHTML = `
-      <span class="panel-name" title="Click to rename">${displayName}</span>
-      <span class="panel-header-actions">
-        <button data-action="undo" class="btn-icon btn-header-icon" title="Undo (Ctrl+Z)">&#x2190;</button>
-        <button data-action="redo" class="btn-icon btn-header-icon" title="Redo (Ctrl+Shift+Z)">&#x2192;</button>
-        <span class="action-separator-sm"></span>
-        <button data-action="refresh" class="btn-icon btn-header-icon" title="Re-layout">&#x21BB;</button>
+      <span class="panel-header-left">
         <button data-action="panel-options" class="btn-icon btn-header-icon" title="Panel options">&#x2699;</button>
+        <button data-action="refresh" class="btn-icon btn-header-icon" title="Re-layout">&#x21BB;</button>
+        <span class="panel-header-sep"></span>
+        <button data-action="undo" class="btn-icon btn-header-icon" title="Undo (Ctrl+Z)">&#x21B6;</button>
+        <button data-action="redo" class="btn-icon btn-header-icon" title="Redo (Ctrl+Shift+Z)">&#x21B7;</button>
         <span class="processing-indicator" title="Processing...">&#x27F3;</span>
       </span>
       <span class="panel-info"></span>
-      <span class="panel-header-btns">
-        <span class="panel-split-group">
-          <button class="panel-split-btn" data-split="v" title="Split this panel into two side-by-side panels">&#x2194;</button>
-          <button class="panel-split-btn" data-split="h" title="Split this panel into two stacked panels">&#x2195;</button>
-        </span>
-        <span class="panel-window-group">
-          <button class="panel-zoom-btn" title="Toggle full-screen zoom on this panel (Escape to exit)">&#x2922;</button>
-          <button class="panel-close-btn" title="Close this panel and remove it from the layout">&#x2715;</button>
-        </span>
+      <span class="panel-header-right">
+        <button class="panel-split-btn" data-split="v" title="Split this panel into two side-by-side panels">&#x2194;</button>
+        <button class="panel-split-btn" data-split="h" title="Split this panel into two stacked panels">&#x2195;</button>
+        <span class="panel-header-sep"></span>
+        <button class="panel-zoom-btn" title="Toggle full-screen zoom on this panel (Escape to exit)">&#x2922;</button>
+        <button class="panel-close-btn" title="Close this panel and remove it from the layout">&#x2715;</button>
       </span>
     `;
     panel.appendChild(header);
-
-    // Wire header buttons
-    const nameEl = header.querySelector('.panel-name');
-    nameEl.style.cursor = 'pointer';
-    nameEl.onclick = () => {
-      renameDialog(displayName, panel).then(newName => {
-        if (newName !== null) {
-          node.name = newName || undefined;
-          nameEl.textContent = newName || `Panel ${node.id}`;
-          // Update merge gutter labels by re-rendering
-          this.render();
-        }
-      });
-    };
 
     header.querySelector('.panel-zoom-btn').onclick = () => this.toggleZoom(node.id);
     header.querySelector('[data-split="v"]').onclick = () => this.splitPanel(node.id, 'v');
@@ -306,6 +288,24 @@ export class LayoutManager {
     const canvas = document.createElement('div');
     canvas.className = 'panel-canvas';
     canvas.dataset.panel = node.id;
+
+    // Panel name overlay (top-left of canvas)
+    const nameOverlay = document.createElement('div');
+    nameOverlay.className = 'panel-name-overlay';
+    nameOverlay.title = 'Click to rename';
+    nameOverlay.textContent = displayName;
+    nameOverlay.onclick = () => {
+      renameDialog(displayName, panel).then(newName => {
+        if (newName !== null) {
+          node.name = newName || undefined;
+          const newDisplay = newName || `Panel ${node.id}`;
+          nameOverlay.textContent = newDisplay;
+          // Update merge gutter labels by re-rendering
+          this.render();
+        }
+      });
+    };
+    canvas.appendChild(nameOverlay);
 
     // Diff overlay (summary of changes)
     const diffOverlay = document.createElement('div');
@@ -468,31 +468,24 @@ export class LayoutManager {
     const list = this._getButtonList(splitNode);
     const leftPanelIds = new Set(this._allPanelNodes(splitNode.children[0]).map(p => p.id));
 
-    const pushArrow = isVertical ? '\u25B6\u25B6' : '\u25BC\u25BC';
-    const pullArrow = isVertical ? '\u25C0\u25C0' : '\u25B2\u25B2';
-
     const zoneEl = document.createElement('div');
     zoneEl.className = 'merge-zone merge-zone-flat';
-
-    if (list.length === 0) {
-      const emptyEl = document.createElement('div');
-      emptyEl.className = 'merge-zone-empty';
-      emptyEl.textContent = 'No merge buttons';
-      zoneEl.appendChild(emptyEl);
-    }
 
     list.forEach((btn, idx) => {
       const { source: sourceId, target: targetId } = btn;
       const key = `${sourceId}→${targetId}`;
       const stratObj = this._getStrategy(key);
-      const arrow = leftPanelIds.has(sourceId) ? pushArrow : pullArrow;
       const sourceName = this._getPanelName(sourceId);
       const targetName = this._getPanelName(targetId);
+      // >> for push (source is on left), << for pull (source is on right)
+      const btnText = leftPanelIds.has(sourceId)
+        ? `${sourceName} >> ${targetName}`
+        : `${targetName} << ${sourceName}`;
 
       const mergeBtn = document.createElement('button');
       mergeBtn.className = 'merge-btn';
       if (stratObj.strategy === 'none') mergeBtn.classList.add('merge-btn-disabled');
-      mergeBtn.innerHTML = `<span class="merge-btn-text">${sourceName} ${arrow} ${targetName}</span><span class="merge-strategy-badge">${this._strategyBadge(stratObj.strategy)}</span>`;
+      mergeBtn.innerHTML = `<span class="merge-btn-text">${btnText}</span><span class="merge-strategy-badge">${this._strategyBadge(stratObj.strategy)}</span>`;
       mergeBtn.title = `Merge ${sourceName} into ${targetName}. Right-click to change strategy or delete.`;
       mergeBtn.dataset.mergeSource = sourceId;
       mergeBtn.dataset.mergeTarget = targetId;
@@ -544,21 +537,13 @@ export class LayoutManager {
       zoneEl.appendChild(btnRow);
     });
 
-    // + button to add arbitrary merge buttons
-    const addBtn = document.createElement('button');
-    addBtn.className = 'merge-btn-add';
-    addBtn.textContent = '+';
-    addBtn.title = 'Add merge button';
-    addBtn.onclick = () => {
-      const allPanelInfos = this._allPanelNodes(this.tree);
-      const currentList = this.mergeButtonLists[gutterKey] || [];
-      addMergeButtonDialog(allPanelInfos, currentList, ({ source, target }) => {
-        this.mergeButtonLists[gutterKey].push({ source, target });
-        this._rerenderGutter(gutterKey);
-        window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
-      });
-    };
-    zoneEl.appendChild(addBtn);
+    // Persistent settings icon — always visible
+    const settingsBtn = document.createElement('button');
+    settingsBtn.className = 'merge-gutter-settings';
+    settingsBtn.innerHTML = '&#x2699;';
+    settingsBtn.title = 'Manage merge buttons';
+    settingsBtn.onclick = () => this._showMergeManagementModal(gutterKey, splitNode);
+    zoneEl.appendChild(settingsBtn);
 
     gutter.appendChild(zoneEl);
 
@@ -567,6 +552,40 @@ export class LayoutManager {
     handle.className = 'resize-handle';
     this._setupResize(handle, splitNode, gutter);
     gutter.appendChild(handle);
+
+    // Set up ResizeObserver to position zone relative to smaller adjacent panel
+    const leftFirstId = this._firstPanelId(splitNode.children[0]);
+    const rightFirstId = this._firstPanelId(splitNode.children[1]);
+    requestAnimationFrame(() => {
+      if (!gutter.isConnected) return;
+      const leftPanelEl = this.rootEl.querySelector(`.panel[data-panel-id="${leftFirstId}"]`);
+      const rightPanelEl = this.rootEl.querySelector(`.panel[data-panel-id="${rightFirstId}"]`);
+      if (!leftPanelEl || !rightPanelEl) return;
+
+      const reposition = () => {
+        if (!gutter.isConnected) { ro.disconnect(); return; }
+        const gutterRect = gutter.getBoundingClientRect();
+        const leftRect = leftPanelEl.getBoundingClientRect();
+        const rightRect = rightPanelEl.getBoundingClientRect();
+        if (isVertical) {
+          const smallerH = Math.min(leftRect.height, rightRect.height);
+          const topOffset = Math.max(leftRect.top, rightRect.top) - gutterRect.top;
+          zoneEl.style.top = `${Math.max(0, topOffset)}px`;
+          zoneEl.style.height = `${smallerH}px`;
+        } else {
+          const smallerW = Math.min(leftRect.width, rightRect.width);
+          const leftOffset = Math.max(leftRect.left, rightRect.left) - gutterRect.left;
+          zoneEl.style.left = `${Math.max(0, leftOffset)}px`;
+          zoneEl.style.width = `${smallerW}px`;
+        }
+      };
+
+      const ro = new ResizeObserver(reposition);
+      ro.observe(leftPanelEl);
+      ro.observe(rightPanelEl);
+      reposition();
+      gutter._resizeObserver = ro;
+    });
 
     return gutter;
   }
@@ -814,6 +833,99 @@ export class LayoutManager {
       btn.classList.toggle('merge-btn-allowed', isAllowed);
       btn.classList.toggle('merge-btn-blocked', !isAllowed);
     });
+  }
+
+  /** Show a modal for managing merge buttons for a specific gutter */
+  _showMergeManagementModal(gutterKey, splitNode) {
+    const list = this.mergeButtonLists[gutterKey] || [];
+    const leftPanelIds = new Set(this._allPanelNodes(splitNode.children[0]).map(p => p.id));
+
+    const buildRows = () => list.map((btn, idx) => {
+      const { source: sourceId, target: targetId } = btn;
+      const key = `${sourceId}→${targetId}`;
+      const stratObj = this._getStrategy(key);
+      const sourceName = this._getPanelName(sourceId);
+      const targetName = this._getPanelName(targetId);
+      const btnText = leftPanelIds.has(sourceId)
+        ? `${sourceName} >> ${targetName}`
+        : `${targetName} << ${sourceName}`;
+
+      const stratOptions = [
+        { value: 'mirror', label: 'Mirror' },
+        { value: 'push', label: 'Push' },
+        { value: 'scoped', label: 'Scoped' },
+        { value: 'none', label: 'None' },
+      ].map(o => `<option value="${o.value}" ${stratObj.strategy === o.value ? 'selected' : ''}>${o.label}</option>`).join('');
+
+      return `
+        <div class="mgmt-row" data-idx="${idx}">
+          <span class="mgmt-btn-label">${btnText}</span>
+          <select class="mgmt-strat-select" data-key="${key}" data-idx="${idx}">${stratOptions}</select>
+          <button class="mgmt-delete-btn btn-danger" data-idx="${idx}" title="Delete">&#x1F5D1;</button>
+        </div>
+      `;
+    }).join('');
+
+    const buildHtml = () => `
+      <div class="dialog-header">
+        <h3>Merge Buttons</h3>
+        <button id="mgmt-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
+      </div>
+      <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Changes are applied live. Drag rows in the gutter to reorder.</p>
+      <div id="mgmt-list">${buildRows() || '<p style="color:var(--text-muted);padding:8px;text-align:center">No merge buttons</p>'}</div>
+      <button id="mgmt-add" class="btn-secondary" style="margin-top:8px">+ Add Merge Button</button>
+    `;
+
+    const dlg = openDialog(buildHtml());
+    dlg.classList.add('dialog-wide');
+
+    const rerender = () => {
+      dlg.querySelector('#mgmt-list').innerHTML = buildRows() || '<p style="color:var(--text-muted);padding:8px;text-align:center">No merge buttons</p>';
+      wireRows();
+    };
+
+    const wireRows = () => {
+      dlg.querySelectorAll('.mgmt-delete-btn').forEach(btn => {
+        btn.onclick = () => {
+          const idx = parseInt(btn.dataset.idx);
+          list.splice(idx, 1);
+          this._rerenderGutter(gutterKey);
+          window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+          rerender();
+        };
+      });
+      dlg.querySelectorAll('.mgmt-strat-select').forEach(sel => {
+        sel.onchange = () => {
+          const key = sel.dataset.key;
+          const strat = sel.value;
+          if (strat === 'mirror') {
+            delete this.mergeStrategies[key];
+          } else {
+            const current = this._getStrategy(key);
+            this.mergeStrategies[key] = { strategy: strat, scopeNodes: current.scopeNodes || [] };
+          }
+          this._rerenderGutter(gutterKey);
+          window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+        };
+      });
+    };
+
+    wireRows();
+
+    dlg.querySelector('#mgmt-add').onclick = () => {
+      const allPanelInfos = this._allPanelNodes(this.tree);
+      const currentList = this.mergeButtonLists[gutterKey] || [];
+      closeDialog();
+      addMergeButtonDialog(allPanelInfos, currentList, ({ source, target }) => {
+        if (!this.mergeButtonLists[gutterKey]) this.mergeButtonLists[gutterKey] = [];
+        this.mergeButtonLists[gutterKey].push({ source, target });
+        this._rerenderGutter(gutterKey);
+        window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+        this._showMergeManagementModal(gutterKey, splitNode);
+      });
+    };
+
+    dlg.querySelector('#mgmt-close-x').onclick = closeDialog;
   }
 
   /** Map over tree nodes, replacing matching ones */

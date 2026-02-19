@@ -160,6 +160,7 @@ function buildCanvasMenu(panel) {
 function buildNodeMenu(panel, node) {
   const label = node.data('label');
   const clipState = getClipboardState();
+  const selectedCount = panel.cy.$(':selected').length;
 
   const items = [
     {
@@ -179,6 +180,14 @@ function buildNodeMenu(panel, node) {
       },
     },
   ];
+
+  if (selectedCount > 1) {
+    items.push({ separator: true });
+    items.push({
+      label: `Delete all selected (${selectedCount})`,
+      action: () => panel.deleteSelected((title, msg) => confirmDialog(title, msg, panel.panelEl)),
+    });
+  }
 
   // Path tracking: "Include All Paths" for fully excluded nodes
   if (panel.pathTrackingEnabled && node.hasClass('node-fully-excluded')) {
@@ -238,6 +247,7 @@ function buildEdgeMenu(panel, edge) {
   const src = edge.data('source');
   const tgt = edge.data('target');
   const edgeKey = `${src}→${tgt}`;
+  const selectedCount = panel.cy.$(':selected').length;
 
   const items = [
     {
@@ -257,6 +267,14 @@ function buildEdgeMenu(panel, edge) {
       },
     },
   ];
+
+  if (selectedCount > 1) {
+    items.push({ separator: true });
+    items.push({
+      label: `Delete all selected (${selectedCount})`,
+      action: () => panel.deleteSelected((title, msg) => confirmDialog(title, msg, panel.panelEl)),
+    });
+  }
 
   // Path tracking exclusion toggles
   if (panel.pathTrackingEnabled && panel._pathTags) {

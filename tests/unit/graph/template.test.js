@@ -3,6 +3,7 @@ import {
   GRAPH_TYPES, defaultTemplate, createTemplate, setSpecialTypes,
   addNodeType, addEdgeType, removeNodeType, removeEdgeType,
   updateNodeType, updateEdgeType,
+  setDefaultLayoutAlgorithm, migrateNodeType, migrateEdgeType,
 } from '../../../src/graph/template.js';
 
 describe('GRAPH_TYPES', () => {
@@ -160,5 +161,106 @@ describe('setSpecialTypes', () => {
   it('preserves order', () => {
     const t = setSpecialTypes(defaultTemplate(), ['c', 'a', 'b']);
     expect(t.specialTypes).toEqual(['c', 'a', 'b']);
+  });
+});
+
+describe('defaultLayoutAlgorithm field', () => {
+  it('defaultTemplate includes defaultLayoutAlgorithm: cose', () => {
+    expect(defaultTemplate().defaultLayoutAlgorithm).toBe('cose');
+  });
+
+  it('createTemplate includes defaultLayoutAlgorithm: cose', () => {
+    expect(createTemplate('T', 'DAG').defaultLayoutAlgorithm).toBe('cose');
+  });
+});
+
+describe('setDefaultLayoutAlgorithm', () => {
+  it('returns new template with updated algorithm', () => {
+    const t = defaultTemplate();
+    const t2 = setDefaultLayoutAlgorithm(t, 'breadthfirst');
+    expect(t2.defaultLayoutAlgorithm).toBe('breadthfirst');
+  });
+
+  it('does not mutate original', () => {
+    const t = defaultTemplate();
+    setDefaultLayoutAlgorithm(t, 'grid');
+    expect(t.defaultLayoutAlgorithm).toBe('cose');
+  });
+
+  it('overrides existing value', () => {
+    const t = setDefaultLayoutAlgorithm(defaultTemplate(), 'circle');
+    const t2 = setDefaultLayoutAlgorithm(t, 'concentric');
+    expect(t2.defaultLayoutAlgorithm).toBe('concentric');
+    expect(t.defaultLayoutAlgorithm).toBe('circle');
+  });
+});
+
+describe('migrateNodeType', () => {
+  const graph = {
+    nodes: [
+      { label: 'A', type: 'old', props: {} },
+      { label: 'B', type: 'other', props: {} },
+      { label: 'C', type: 'old', props: {} },
+    ],
+    edges: [{ source: 'A', target: 'B', type: null, props: {} }],
+  };
+
+  it('updates all nodes of given type', () => {
+    const result = migrateNodeType(graph, 'old', 'new');
+    const updated = result.nodes.filter(n => n.label === 'A' || n.label === 'C');
+    expect(updated.every(n => n.type === 'new')).toBe(true);
+  });
+
+  it('leaves nodes of other types unchanged', () => {
+    const result = migrateNodeType(graph, 'old', 'new');
+    expect(result.nodes.find(n => n.label === 'B').type).toBe('other');
+  });
+
+  it('does not mutate original graph', () => {
+    migrateNodeType(graph, 'old', 'new');
+    expect(graph.nodes[0].type).toBe('old');
+  });
+
+  it('preserves edges', () => {
+    const result = migrateNodeType(graph, 'old', 'new');
+    expect(result.edges).toHaveLength(1);
+  });
+
+  it('returns same graph if no nodes match', () => {
+    const result = migrateNodeType(graph, 'nonexistent', 'new');
+    expect(result.nodes.every(n => n.type !== 'new')).toBe(true);
+  });
+});
+
+describe('migrateEdgeType', () => {
+  const graph = {
+    nodes: [
+      { label: 'A', type: null, props: {} },
+      { label: 'B', type: null, props: {} },
+    ],
+    edges: [
+      { source: 'A', target: 'B', type: 'old', props: {} },
+      { source: 'B', target: 'A', type: 'keep', props: {} },
+    ],
+  };
+
+  it('updates all edges of given type', () => {
+    const result = migrateEdgeType(graph, 'old', 'new');
+    expect(result.edges.find(e => e.source === 'A').type).toBe('new');
+  });
+
+  it('leaves edges of other types unchanged', () => {
+    const result = migrateEdgeType(graph, 'old', 'new');
+    expect(result.edges.find(e => e.source === 'B').type).toBe('keep');
+  });
+
+  it('does not mutate original graph', () => {
+    migrateEdgeType(graph, 'old', 'new');
+    expect(graph.edges[0].type).toBe('old');
+  });
+
+  it('preserves nodes', () => {
+    const result = migrateEdgeType(graph, 'old', 'new');
+    expect(result.nodes).toHaveLength(2);
   });
 });
