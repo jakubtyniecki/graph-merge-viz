@@ -447,47 +447,73 @@ export function editSelectedDialog(panel) {
       </div>
     `, panel.panelEl);
 
-    // Wire toggle buttons
+    // Wire toggle buttons — local state only; applied on Save, discarded on Cancel
     if (hasTracking && trackingTags.length > 0) {
+      // Snapshot direct exclusions into a local working copy
+      const localDirectExclusions = new Set(panel.exclusions[edgeKey] || []);
+
+      // Propagated = effective minus direct (read-only, from upstream)
+      const getPropagated = () => {
+        const effective = panel._effectiveExclusions?.get(edgeKey) || new Set();
+        const direct = new Set(panel.exclusions[edgeKey] || []);
+        return new Set([...effective].filter(t => !direct.has(t)));
+      };
+
       const refreshTagUI = () => {
-        const effectiveExcluded = panel._effectiveExclusions?.get(edgeKey) || new Set();
-        const directExcluded = new Set(panel.exclusions[edgeKey] || []);
-        const includedTags = trackingTags.filter(t => !effectiveExcluded.has(pathSerializeTag(t, specialTypes)));
-        const excludedTags = trackingTags.filter(t => effectiveExcluded.has(pathSerializeTag(t, specialTypes)));
+        const propagated = getPropagated();
+        const allExcluded = new Set([...localDirectExclusions, ...propagated]);
+        const includedTags = trackingTags.filter(t => !allExcluded.has(pathSerializeTag(t, specialTypes)));
+        const excludedTags = trackingTags.filter(t => allExcluded.has(pathSerializeTag(t, specialTypes)));
         const parts = [];
         if (includedTags.length) parts.push('Included: ' + includedTags.map(t => pathFormatTag(t, specialTypes, panel.template?.nodeTypes || [])).join(', '));
         if (excludedTags.length) parts.push('Excluded: ' + excludedTags.map(t => pathFormatTag(t, specialTypes, panel.template?.nodeTypes || [])).join(', '));
         dlg.querySelector('#edge-tag-summary').textContent = parts.join('\n') || '(no active paths)';
         dlg.querySelectorAll('#edge-excl-toggles .excl-toggle').forEach(btn => {
+          if (btn.dataset.propagated === 'true') return;
           const serialized = btn.dataset.tag;
-          const isPropagated = btn.dataset.propagated === 'true';
-          if (isPropagated) return;
-          const isExcluded = (panel._effectiveExclusions?.get(edgeKey) || new Set()).has(serialized);
-          btn.className = isExcluded ? 'excl-toggle excl-btn-excluded' : 'excl-toggle excl-btn-included';
+          btn.className = localDirectExclusions.has(serialized)
+            ? 'excl-toggle excl-btn-excluded'
+            : 'excl-toggle excl-btn-included';
         });
       };
+
       dlg.querySelectorAll('#edge-excl-toggles .excl-toggle').forEach(btn => {
         if (btn.dataset.propagated === 'true') return;
         btn.onclick = () => {
           const serialized = btn.dataset.tag;
-          const isExcluded = (panel._effectiveExclusions?.get(edgeKey) || new Set()).has(serialized);
-          if (isExcluded) {
-            panel.includePathTag(edgeKey, serialized);
+          if (localDirectExclusions.has(serialized)) {
+            localDirectExclusions.delete(serialized);
           } else {
-            panel.excludePathTag(edgeKey, serialized);
+            localDirectExclusions.add(serialized);
           }
           refreshTagUI();
         };
       });
+
+      dlg.querySelector('#dlg-ok').onclick = () => {
+        const props = textToProps(dlg.querySelector('#dlg-props').value);
+        const type = hasTypes ? (dlg.querySelector('#dlg-type').value || null) : undefined;
+        panel.updateEdgeProps(source, target, props, type);
+        // Apply local exclusion changes to panel
+        if (localDirectExclusions.size > 0) {
+          panel.exclusions[edgeKey] = [...localDirectExclusions];
+        } else {
+          delete panel.exclusions[edgeKey];
+        }
+        panel._recomputePathTrackingAsync();
+        panel._emitChange();
+        closeDialog();
+      };
+    } else {
+      dlg.querySelector('#dlg-ok').onclick = () => {
+        const props = textToProps(dlg.querySelector('#dlg-props').value);
+        const type = hasTypes ? (dlg.querySelector('#dlg-type').value || null) : undefined;
+        panel.updateEdgeProps(source, target, props, type);
+        closeDialog();
+      };
     }
 
     dlg.querySelector('#dlg-cancel').onclick = closeDialog;
-    dlg.querySelector('#dlg-ok').onclick = () => {
-      const props = textToProps(dlg.querySelector('#dlg-props').value);
-      const type = hasTypes ? (dlg.querySelector('#dlg-type').value || null) : undefined;
-      panel.updateEdgeProps(source, target, props, type);
-      closeDialog();
-    };
   }
 }
 
