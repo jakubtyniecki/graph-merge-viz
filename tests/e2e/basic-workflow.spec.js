@@ -166,30 +166,6 @@ test.describe('Merge buttons', () => {
     await expect(page.locator('.merge-btn').first()).toBeVisible();
   });
 
-  test('right-click merge button shows strategy picker', async ({ page }) => {
-    await page.goto('/');
-    await page.locator('.merge-btn').first().click({ button: 'right' });
-    await expect(page.locator('.merge-strategy-picker')).toBeVisible();
-  });
-
-  test('strategy picker dismisses on click outside', async ({ page }) => {
-    await page.goto('/');
-    await page.locator('.merge-btn').first().click({ button: 'right' });
-    await expect(page.locator('.merge-strategy-picker')).toBeVisible();
-    await page.locator('body').click({ position: { x: 10, y: 10 } });
-    await expect(page.locator('.merge-strategy-picker')).toHaveCount(0);
-  });
-
-  test('strategy picker contains expected options', async ({ page }) => {
-    await page.goto('/');
-    await page.locator('.merge-btn').first().click({ button: 'right' });
-    await expect(page.locator('[data-strat="mirror"]')).toBeVisible();
-    await expect(page.locator('[data-strat="push"]')).toBeVisible();
-    await expect(page.locator('[data-strat="scoped"]')).toBeVisible();
-    await expect(page.locator('[data-strat="none"]')).toBeVisible();
-    await expect(page.locator('[data-strat="__delete__"]')).toBeVisible();
-  });
-
   test('settings icon opens merge management modal', async ({ page }) => {
     await page.goto('/');
     await page.locator('.merge-gutter-settings').first().dispatchEvent('click');
@@ -197,11 +173,12 @@ test.describe('Merge buttons', () => {
     await page.keyboard.press('Escape');
   });
 
-  test('merge button delete removes it from gutter', async ({ page }) => {
+  test('merge button delete removes it from gutter via management modal', async ({ page }) => {
     await page.goto('/');
     const before = await page.locator('.merge-btn').count();
-    await page.locator('.merge-btn').first().click({ button: 'right' });
-    await page.locator('[data-strat="__delete__"]').click();
+    await page.locator('.merge-gutter-settings').first().dispatchEvent('click');
+    await expect(page.locator('dialog[open]')).toBeVisible();
+    await page.locator('.mgmt-delete-btn').first().click();
     await expect(page.locator('.merge-btn')).toHaveCount(before - 1);
   });
 });
@@ -313,10 +290,10 @@ test.describe('Merge gutter redesign', () => {
     await expect(page.locator('#mgmt-close-x')).not.toBeVisible();
   });
 
-  test('merge button text uses >> format (not unicode arrows)', async ({ page }) => {
+  test('merge button text uses » direction icon', async ({ page }) => {
     await page.goto('/');
     const btnText = await page.locator('.merge-btn-text').first().textContent();
-    expect(btnText).toContain('>>');
+    expect(btnText).toMatch(/[»«]/);
   });
 
   test('no "No merge buttons" placeholder shown', async ({ page }) => {
