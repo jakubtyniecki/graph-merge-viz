@@ -205,6 +205,7 @@ export class Panel {
       timestamp: entry.timestamp,
       diffSummary: entry.diffSummary,
       exclusions: deepClone(entry.exclusions || {}),
+      pathTrackingEnabled: entry.pathTrackingEnabled || false,
     })) : [];
     this._syncCytoscape();
     this._applyDiffClasses();
@@ -398,6 +399,7 @@ export class Panel {
       timestamp: new Date().toISOString(),
       diffSummary,
       exclusions: deepClone(this.exclusions),
+      pathTrackingEnabled: this.pathTrackingEnabled,
     });
 
     // Cap history at max size

@@ -6,7 +6,7 @@ import cytoscape from 'cytoscape';
 import { baseStyles } from '../cytoscape/styles.js';
 import { GRAPH_TYPES, defaultTemplate } from '../graph/template.js';
 import { deepClone } from '../graph/model.js';
-import { serializeTag as pathSerializeTag, formatPathTag as pathFormatTag } from '../graph/path-tracking.js';
+import { serializeTag as pathSerializeTag, formatPathTag as pathFormatTag, computePathTags, propagateExclusions } from '../graph/path-tracking.js';
 
 // Remember last-used types across dialogs
 let _lastNodeType = null;
@@ -789,19 +789,70 @@ export function approvalPreviewDialog(entry, index, panel) {
     return elements;
   };
 
-  const layoutName = panel.layoutAlgorithm && panel.layoutAlgorithm !== 'level-by-level'
-    ? panel.layoutAlgorithm
-    : 'fcose';
+  const runPreviewLayout = (cyInstance) => {
+    const algo = panel.layoutAlgorithm || 'fcose';
+    if (algo === 'level-by-level') {
+      const allNodes = cyInstance.nodes();
+      if (allNodes.length === 0) return;
+      const sinks = allNodes.filter(n => n.outgoers('edge').length === 0);
+      const startNodes = sinks.length > 0 ? sinks : allNodes;
+      const levels = new Map();
+      const queue = [];
+      startNodes.forEach(n => { levels.set(n.id(), 0); queue.push(n.id()); });
+      while (queue.length > 0) {
+        const id = queue.shift();
+        const level = levels.get(id);
+        cyInstance.$id(id).incomers('edge').forEach(edge => {
+          const srcId = edge.source().id();
+          if (!levels.has(srcId) || levels.get(srcId) < level + 1) {
+            levels.set(srcId, level + 1);
+            queue.push(srcId);
+          }
+        });
+      }
+      const maxLevel = Math.max(...levels.values(), 0);
+      const containerH = cyInstance.container()?.clientHeight || 400;
+      const step = containerH / (maxLevel + 2);
+      cyInstance.nodes().forEach(n => {
+        const lvl = levels.get(n.id()) ?? maxLevel + 1;
+        n.position({ x: n.position('x'), y: (maxLevel - lvl) * step + step });
+      });
+      cyInstance.fit(undefined, 20);
+    } else {
+      cyInstance.layout({ name: algo, animate: false, fit: true, padding: 20 }).run();
+    }
+  };
 
   const cy = cytoscape({
     container: canvasEl,
     elements: buildApprovedElements(),
     style: baseStyles,
-    layout: { name: layoutName, animate: false, fit: true, padding: 20 },
+    layout: { name: 'preset', animate: false },
     autoungrabify: true,
     userZoomingEnabled: true,
     userPanningEnabled: true,
   });
+  runPreviewLayout(cy);
+
+  // Apply path tracking styles if entry had tracking enabled
+  if (entry.pathTrackingEnabled && panel.template?.specialTypes?.length > 0) {
+    const specialTypes = panel.template.specialTypes;
+    const pathTags = computePathTags(entry.graph, specialTypes);
+    const effectiveExclusions = propagateExclusions(
+      entry.graph, entry.exclusions || {}, pathTags, specialTypes
+    );
+    for (const [edgeKey, tags] of pathTags) {
+      if (tags.length === 0) continue;
+      const excluded = effectiveExclusions.get(edgeKey) || new Set();
+      const allExcluded = tags.every(t => excluded.has(pathSerializeTag(t, specialTypes)));
+      const cyEdge = cy.$id(edgeKey);
+      if (cyEdge.length) cyEdge.addClass(allExcluded ? 'path-excluded' : 'path-tracked');
+    }
+    cy.style()
+      .selector('.path-tracked').style({ 'line-color': '#4fc3f7', 'width': 3 })
+      .selector('.path-excluded').style({ 'line-color': '#666', 'line-style': 'dashed' })
+      .update();
+  }
 
   // Toggle buttons
   let currentMode = 'approved';
@@ -817,7 +868,7 @@ export function approvalPreviewDialog(entry, index, panel) {
     cy.elements().remove();
     const newElements = mode === 'changeset' ? buildChangesetElements() : buildApprovedElements();
     cy.add(newElements);
-    cy.layout({ name: layoutName, animate: false, fit: true, padding: 20 }).run();
+    runPreviewLayout(cy);
   };
 
   btnApproved.onclick = () => switchMode('approved');

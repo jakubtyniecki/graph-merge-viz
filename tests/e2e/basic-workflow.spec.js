@@ -609,6 +609,22 @@ test.describe('Approval history split view', () => {
   });
 });
 
+// ─── Approval Entry Path Tracking Field ─────────────────────────────────────
+
+test.describe('Approval entry path tracking field', () => {
+  test('approval entry stores pathTrackingEnabled field', async ({ page }) => {
+    await page.goto('/');
+    const hasPTField = await page.evaluate(() => {
+      const panel = window.__panels?.get('1');
+      if (!panel) return null;
+      panel.approve();
+      const entry = panel._approvalHistory[panel._approvalHistory.length - 1];
+      return 'pathTrackingEnabled' in entry;
+    });
+    expect(hasPTField).toBe(true);
+  });
+});
+
 // ─── Panel Header Merge Direction ───────────────────────────────────────────
 
 test.describe('Panel header merge direction', () => {
