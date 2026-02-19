@@ -478,16 +478,15 @@ export class LayoutManager {
       const stratObj = this._getStrategy(key);
       const sourceName = this._getPanelName(sourceId);
       const targetName = this._getPanelName(targetId);
-      // >> for push (source is on left), << for pull (source is on right)
       const btnText = leftPanelIds.has(sourceId)
-        ? `${sourceName} >> ${targetName}`
-        : `${targetName} << ${sourceName}`;
+        ? `${sourceName} \u00BB ${targetName}`
+        : `${targetName} \u00AB ${sourceName}`;
 
       const mergeBtn = document.createElement('button');
       mergeBtn.className = 'merge-btn';
       if (stratObj.strategy === 'none') mergeBtn.classList.add('merge-btn-disabled');
       mergeBtn.innerHTML = `<span class="merge-btn-text">${btnText}</span><span class="merge-strategy-badge">${this._strategyBadge(stratObj.strategy)}</span>`;
-      mergeBtn.title = `Merge ${sourceName} into ${targetName}. Right-click to change strategy or delete.`;
+      mergeBtn.title = `Merge ${sourceName} into ${targetName}`;
       mergeBtn.dataset.mergeSource = sourceId;
       mergeBtn.dataset.mergeTarget = targetId;
       mergeBtn.onclick = () => {
@@ -819,8 +818,8 @@ export class LayoutManager {
       const sourceName = this._getPanelName(sourceId);
       const targetName = this._getPanelName(targetId);
       const btnText = leftPanelIds.has(sourceId)
-        ? `${sourceName} >> ${targetName}`
-        : `${targetName} << ${sourceName}`;
+        ? `${sourceName} \u00BB ${targetName}`
+        : `${targetName} \u00AB ${sourceName}`;
 
       const stratOptions = [
         { value: 'mirror', label: 'Mirror' },

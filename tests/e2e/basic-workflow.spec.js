@@ -446,6 +446,19 @@ test.describe('Merge management modal', () => {
   });
 });
 
+// ─── Merge Button Direction Icons ────────────────────────────────────────────
+
+test('merge button uses direction icons not >> text', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.panel-split-btn[data-split="v"]').first().dispatchEvent('click');
+  const mergeBtn = page.locator('.merge-btn').first();
+  await expect(mergeBtn).toBeVisible();
+  const text = await mergeBtn.textContent();
+  expect(text).not.toContain('>>');
+  expect(text).not.toContain('<<');
+  expect(text).toMatch(/[»«]/);
+});
+
 // ─── Panel Header Polish ──────────────────────────────────────────────────────
 
 test.describe('Panel header polish', () => {
