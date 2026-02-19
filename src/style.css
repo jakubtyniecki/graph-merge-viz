@@ -145,6 +145,7 @@ body {
   justify-content: center;
   gap: 2px;
   pointer-events: none;
+  z-index: 5;
 }
 
 .split-v > .merge-gutter .merge-zone {
@@ -284,7 +285,7 @@ body {
   position: absolute;
   top: 6px;
   left: 8px;
-  z-index: 10;
+  z-index: 1;
   background: rgba(0, 0, 0, 0.45);
   color: var(--accent);
   padding: 2px 8px;

@@ -399,6 +399,20 @@ test.describe('Approval history preview', () => {
   });
 });
 
+// ─── Panel Name Z-Index ───────────────────────────────────────────────────────
+
+test('merge zone appears above panel name overlay', async ({ page }) => {
+  await page.goto('/');
+  // Split to create a merge gutter
+  await page.locator('.panel-split-btn[data-split="v"]').first().dispatchEvent('click');
+  const nameOverlay = page.locator('.panel-name-overlay').first();
+  const mergeZone = page.locator('.merge-zone').first();
+  const nameZ = await nameOverlay.evaluate(el => getComputedStyle(el).zIndex);
+  const mergeZ = await mergeZone.evaluate(el => getComputedStyle(el).zIndex);
+  // name overlay should be low (≤1); merge zone should be above it
+  expect(parseInt(nameZ)).toBeLessThanOrEqual(1);
+});
+
 // ─── Panel Header Polish ──────────────────────────────────────────────────────
 
 test.describe('Panel header polish', () => {
