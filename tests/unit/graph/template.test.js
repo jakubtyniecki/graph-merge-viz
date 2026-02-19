@@ -56,6 +56,13 @@ describe('defaultTemplate', () => {
   });
 });
 
+describe('defaultTemplate layout algorithm', () => {
+  it('defaultLayoutAlgorithm defaults to fcose', () => {
+    const t = defaultTemplate();
+    expect(t.defaultLayoutAlgorithm).toBe('fcose');
+  });
+});
+
 describe('createTemplate', () => {
   it('uses provided name and graphType', () => {
     const t = createTemplate('MyGraph', 'DAG');
@@ -72,6 +79,11 @@ describe('createTemplate', () => {
     expect(t.nodeTypes).toEqual([]);
     expect(t.edgeTypes).toEqual([]);
     expect(t.specialTypes).toEqual([]);
+  });
+
+  it('defaultLayoutAlgorithm defaults to fcose', () => {
+    const t = createTemplate('MyGraph');
+    expect(t.defaultLayoutAlgorithm).toBe('fcose');
   });
 });
 
@@ -165,12 +177,12 @@ describe('setSpecialTypes', () => {
 });
 
 describe('defaultLayoutAlgorithm field', () => {
-  it('defaultTemplate includes defaultLayoutAlgorithm: cose', () => {
-    expect(defaultTemplate().defaultLayoutAlgorithm).toBe('cose');
+  it('defaultTemplate includes defaultLayoutAlgorithm: fcose', () => {
+    expect(defaultTemplate().defaultLayoutAlgorithm).toBe('fcose');
   });
 
-  it('createTemplate includes defaultLayoutAlgorithm: cose', () => {
-    expect(createTemplate('T', 'DAG').defaultLayoutAlgorithm).toBe('cose');
+  it('createTemplate includes defaultLayoutAlgorithm: fcose', () => {
+    expect(createTemplate('T', 'DAG').defaultLayoutAlgorithm).toBe('fcose');
   });
 });
 
@@ -184,7 +196,7 @@ describe('setDefaultLayoutAlgorithm', () => {
   it('does not mutate original', () => {
     const t = defaultTemplate();
     setDefaultLayoutAlgorithm(t, 'grid');
-    expect(t.defaultLayoutAlgorithm).toBe('cose');
+    expect(t.defaultLayoutAlgorithm).toBe('fcose');
   });
 
   it('overrides existing value', () => {

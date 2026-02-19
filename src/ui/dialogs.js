@@ -801,6 +801,11 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false, 
   // Work on a local clone so Cancel does nothing
   let local = deepClone(template);
   if (!local.specialTypes) local.specialTypes = [];
+  // Migrate old algorithm names from legacy sessions
+  const _algoMigration = { cose: 'fcose', dagre: 'level-by-level' };
+  if (_algoMigration[local.defaultLayoutAlgorithm]) {
+    local.defaultLayoutAlgorithm = _algoMigration[local.defaultLayoutAlgorithm];
+  }
 
   const isDAG = local.graphType === 'DAG';
 
@@ -843,12 +848,12 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false, 
   };
 
   const layoutAlgoOptions = [
-    { value: 'cose', label: 'COSE (force-directed)' },
-    { value: 'breadthfirst', label: 'Breadth-first' },
+    { value: 'fcose', label: 'Force-Directed (fcose)' },
+    { value: 'level-by-level', label: 'Level-by-Level (DAG)' },
     { value: 'circle', label: 'Circle' },
-    { value: 'grid', label: 'Grid' },
     { value: 'concentric', label: 'Concentric' },
-    { value: 'dagre', label: 'Dagre (DAG only)' },
+    { value: 'breadthfirst', label: 'Breadth-First' },
+    { value: 'grid', label: 'Grid' },
   ];
 
   const buildHtml = () => `
@@ -868,7 +873,7 @@ export function editTemplateDialog(template, onSave, isSessionTemplate = false, 
     ${renderSpecialTypes()}
     <div class="template-section-label">Default Layout Algorithm</div>
     <select id="default-layout-algo">
-      ${layoutAlgoOptions.map(o => `<option value="${o.value}" ${(local.defaultLayoutAlgorithm || 'cose') === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
+      ${layoutAlgoOptions.map(o => `<option value="${o.value}" ${(local.defaultLayoutAlgorithm || 'fcose') === o.value ? 'selected' : ''}>${o.label}</option>`).join('')}
     </select>
     <div class="dialog-actions">
       <button id="dlg-cancel">Cancel</button>

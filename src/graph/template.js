@@ -14,7 +14,7 @@ export const defaultTemplate = () => ({
   nodeTypes: [],
   edgeTypes: [],
   specialTypes: [],
-  defaultLayoutAlgorithm: 'cose',
+  defaultLayoutAlgorithm: 'fcose',
 });
 
 /** Create a new named template */
@@ -24,7 +24,7 @@ export const createTemplate = (name, graphType = 'UCG') => ({
   nodeTypes: [],
   edgeTypes: [],
   specialTypes: [],
-  defaultLayoutAlgorithm: 'cose',
+  defaultLayoutAlgorithm: 'fcose',
 });
 
 /** Set special type IDs (ordered) for path tracking */

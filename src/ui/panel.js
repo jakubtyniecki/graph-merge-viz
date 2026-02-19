@@ -101,7 +101,7 @@ export class Panel {
     this.lastApproval = null;
     this.container = container;
     this.template = template || defaultTemplate();
-    this.layoutAlgorithm = 'fcose';
+    this.layoutAlgorithm = template?.defaultLayoutAlgorithm || 'fcose';
     this.pathTrackingEnabled = false;
     this.showExclusions = true;
     this.exclusions = {};  // { "edgeKey": ["serializedTag1", ...] }
@@ -190,7 +190,9 @@ export class Panel {
     this.baseGraph = state.baseGraph || null;
     this.mergeDirection = state.mergeDirection || null;
     this.lastApproval = state.lastApproval || null;
-    this.layoutAlgorithm = state.layoutAlgorithm || 'fcose';
+    const _algoMigration = { cose: 'fcose', dagre: 'level-by-level' };
+    const storedAlgo = state.layoutAlgorithm || 'fcose';
+    this.layoutAlgorithm = _algoMigration[storedAlgo] || storedAlgo;
     this.pathTrackingEnabled = state.pathTrackingEnabled || false;
     this.showExclusions = state.showExclusions ?? true;
     this.exclusions = deepClone(state.exclusions || {});
