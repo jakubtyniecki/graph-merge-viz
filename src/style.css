@@ -234,6 +234,18 @@ body {
   background: rgba(244, 67, 54, 0.1);
 }
 
+.merge-btn-cross {
+  color: #f9a825;
+  border-left: 3px solid #f9a825;
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.merge-btn-cross:hover {
+  background: rgba(249, 168, 37, 0.15);
+}
+
 /* Panels */
 .panel {
   position: relative;

@@ -468,6 +468,7 @@ export class LayoutManager {
 
     const list = this._getButtonList(splitNode);
     const leftPanelIds = new Set(this._allPanelNodes(splitNode.children[0]).map(p => p.id));
+    const rightPanelIds = new Set(this._allPanelNodes(splitNode.children[1]).map(p => p.id));
 
     const zoneEl = document.createElement('div');
     zoneEl.className = 'merge-zone merge-zone-flat';
@@ -482,9 +483,13 @@ export class LayoutManager {
         ? `${sourceName} \u00BB ${targetName}`
         : `${targetName} \u00AB ${sourceName}`;
 
+      const isAdjacent = (leftPanelIds.has(sourceId) && rightPanelIds.has(targetId)) ||
+                         (rightPanelIds.has(sourceId) && leftPanelIds.has(targetId));
+
       const mergeBtn = document.createElement('button');
       mergeBtn.className = 'merge-btn';
       if (stratObj.strategy === 'none') mergeBtn.classList.add('merge-btn-disabled');
+      if (!isAdjacent) mergeBtn.classList.add('merge-btn-cross');
       mergeBtn.innerHTML = `<span class="merge-btn-text">${btnText}</span><span class="merge-strategy-badge">${this._strategyBadge(stratObj.strategy)}</span>`;
       mergeBtn.title = `Merge ${sourceName} into ${targetName}`;
       mergeBtn.dataset.mergeSource = sourceId;

@@ -565,6 +565,16 @@ test.describe('Panel header polish', () => {
   });
 });
 
+// ─── Cross-Panel Merge Buttons ───────────────────────────────────────────────
+
+test.describe('Cross-panel merge buttons', () => {
+  test('cross-panel merge button class exists when applicable', async ({ page }) => {
+    await page.goto('/');
+    // Default 2-panel layout has 1 button that IS adjacent — no cross-panel buttons
+    await expect(page.locator('.merge-btn-cross')).toHaveCount(0);
+  });
+});
+
 // ─── Merge Management Per-Row Settings ───────────────────────────────────────
 
 test.describe('Merge management per-row settings', () => {
