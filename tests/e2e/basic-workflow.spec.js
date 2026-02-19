@@ -446,6 +446,18 @@ test.describe('Merge management modal', () => {
   });
 });
 
+// ─── Remove Right-Click Strategy Picker ──────────────────────────────────────
+
+test('right-click on merge button does not open strategy picker', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.panel-split-btn[data-split="v"]').first().dispatchEvent('click');
+  const mergeBtn = page.locator('.merge-btn').first();
+  await expect(mergeBtn).toBeVisible();
+  await mergeBtn.dispatchEvent('contextmenu');
+  await page.waitForTimeout(300);
+  await expect(page.locator('.merge-strategy-picker')).toHaveCount(0);
+});
+
 // ─── Merge Button Direction Icons ────────────────────────────────────────────
 
 test('merge button uses direction icons not >> text', async ({ page }) => {

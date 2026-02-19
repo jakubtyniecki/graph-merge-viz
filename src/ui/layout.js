@@ -496,11 +496,6 @@ export class LayoutManager {
         }
         this.onMerge(sourceId, targetId);
       };
-      mergeBtn.addEventListener('contextmenu', e => {
-        e.preventDefault();
-        this._showStrategyPicker(key, mergeBtn, gutterKey);
-      });
-
       const btnRow = document.createElement('div');
       btnRow.className = 'merge-btn-row';
       btnRow.appendChild(mergeBtn);
