@@ -504,36 +504,7 @@ export class LayoutManager {
 
       const btnRow = document.createElement('div');
       btnRow.className = 'merge-btn-row';
-      btnRow.draggable = true;
-
-      const dragHandle = document.createElement('span');
-      dragHandle.className = 'merge-btn-drag';
-      dragHandle.textContent = '\u22EE\u22EE';  // ⋮⋮
-      dragHandle.title = 'Drag to reorder';
-
-      btnRow.appendChild(dragHandle);
       btnRow.appendChild(mergeBtn);
-
-      // HTML5 drag-and-drop reordering
-      btnRow.addEventListener('dragstart', e => {
-        e.dataTransfer.setData('text/plain', String(idx));
-        e.dataTransfer.effectAllowed = 'move';
-        btnRow.classList.add('dragging');
-      });
-      btnRow.addEventListener('dragend', () => btnRow.classList.remove('dragging'));
-      btnRow.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
-      btnRow.addEventListener('drop', e => {
-        e.preventDefault();
-        const fromIdx = parseInt(e.dataTransfer.getData('text/plain'));
-        const toIdx = idx;
-        if (fromIdx === toIdx) return;
-        const btnList = this.mergeButtonLists[gutterKey];
-        if (!btnList) return;
-        const item = btnList.splice(fromIdx, 1)[0];
-        btnList.splice(fromIdx < toIdx ? toIdx - 1 : toIdx, 0, item);
-        this._rerenderGutter(gutterKey);
-        window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
-      });
 
       zoneEl.appendChild(btnRow);
     });
@@ -760,7 +731,7 @@ export class LayoutManager {
       `<div class="strategy-option${current === o.strat ? ' active' : ''}" data-strat="${o.strat}">${current === o.strat ? '✓ ' : ''}${o.label}</div>`
     ).join('') + `
       <hr class="strategy-separator">
-      <div class="strategy-option strategy-delete" data-strat="__delete__">&#x1F5D1; Delete</div>
+      <div class="strategy-option strategy-delete" data-strat="__delete__">&#x2715; Delete</div>
     `;
 
     document.body.appendChild(picker);
@@ -862,7 +833,9 @@ export class LayoutManager {
         <div class="mgmt-row" data-idx="${idx}">
           <span class="mgmt-btn-label">${btnText}</span>
           <select class="mgmt-strat-select" data-key="${key}" data-idx="${idx}">${stratOptions}</select>
-          <button class="mgmt-delete-btn btn-danger" data-idx="${idx}" title="Delete">&#x1F5D1;</button>
+          <button class="mgmt-up-btn btn-icon" data-idx="${idx}" title="Move up" ${idx === 0 ? 'disabled' : ''}>&#x25B2;</button>
+          <button class="mgmt-dn-btn btn-icon" data-idx="${idx}" title="Move down" ${idx === list.length - 1 ? 'disabled' : ''}>&#x25BC;</button>
+          <button class="mgmt-delete-btn btn-danger" data-idx="${idx}" title="Delete">&#x00D7;</button>
         </div>
       `;
     }).join('');
@@ -872,7 +845,7 @@ export class LayoutManager {
         <h3>Merge Buttons</h3>
         <button id="mgmt-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
       </div>
-      <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Changes are applied live. Drag rows in the gutter to reorder.</p>
+      <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Changes are applied live. Use &#x25B2;&#x25BC; buttons to reorder.</p>
       <div id="mgmt-list">${buildRows() || '<p style="color:var(--text-muted);padding:8px;text-align:center">No merge buttons</p>'}</div>
       <button id="mgmt-add" class="btn-secondary" style="margin-top:8px">+ Add Merge Button</button>
     `;
@@ -890,6 +863,26 @@ export class LayoutManager {
         btn.onclick = () => {
           const idx = parseInt(btn.dataset.idx);
           list.splice(idx, 1);
+          this._rerenderGutter(gutterKey);
+          window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+          rerender();
+        };
+      });
+      dlg.querySelectorAll('.mgmt-up-btn').forEach(btn => {
+        btn.onclick = () => {
+          const idx = parseInt(btn.dataset.idx);
+          if (idx === 0) return;
+          [list[idx - 1], list[idx]] = [list[idx], list[idx - 1]];
+          this._rerenderGutter(gutterKey);
+          window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+          rerender();
+        };
+      });
+      dlg.querySelectorAll('.mgmt-dn-btn').forEach(btn => {
+        btn.onclick = () => {
+          const idx = parseInt(btn.dataset.idx);
+          if (idx === list.length - 1) return;
+          [list[idx], list[idx + 1]] = [list[idx + 1], list[idx]];
           this._rerenderGutter(gutterKey);
           window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
           rerender();

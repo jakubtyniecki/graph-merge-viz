@@ -413,6 +413,39 @@ test('merge zone appears above panel name overlay', async ({ page }) => {
   expect(parseInt(nameZ)).toBeLessThanOrEqual(1);
 });
 
+// ─── Merge Management Modal ──────────────────────────────────────────────────
+
+test.describe('Merge management modal', () => {
+  test('merge buttons in gutter have no drag handle', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.panel-split-btn[data-split="v"]').first().dispatchEvent('click');
+    await expect(page.locator('.merge-btn-drag')).toHaveCount(0);
+  });
+
+  test('delete button is X not trash emoji', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.panel-split-btn[data-split="v"]').first().dispatchEvent('click');
+    await page.locator('.merge-gutter-settings').first().dispatchEvent('click');
+    await expect(page.locator('dialog[open]')).toBeVisible();
+    const deleteBtns = page.locator('.mgmt-delete-btn');
+    if (await deleteBtns.count() > 0) {
+      const text = await deleteBtns.first().textContent();
+      expect(text.trim()).toBe('\u00D7');  // × character
+    }
+  });
+
+  test('management modal has up/down reorder buttons', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.panel-split-btn[data-split="v"]').first().dispatchEvent('click');
+    await page.locator('.merge-gutter-settings').first().dispatchEvent('click');
+    await expect(page.locator('dialog[open]')).toBeVisible();
+    if (await page.locator('.mgmt-row').count() > 0) {
+      await expect(page.locator('.mgmt-up-btn').first()).toBeVisible();
+      await expect(page.locator('.mgmt-dn-btn').first()).toBeVisible();
+    }
+  });
+});
+
 // ─── Panel Header Polish ──────────────────────────────────────────────────────
 
 test.describe('Panel header polish', () => {
