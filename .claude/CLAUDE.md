@@ -44,6 +44,32 @@ npm run test:e2e     # Playwright E2E (auto-starts dev server)
 
 ---
 
+## Versioning & Releases
+
+**Version bumping:**
+- **Patch** (x.y.Z): bump on each commit in package.json
+- **Minor** (x.Y.z): bump on push to origin/master, create git tag, run `npm run deploy`
+- **Major** (X.y.z): for architectural changes — ask user first
+
+**Workflow:**
+```bash
+# After code changes, before commit:
+npm test && npm run test:e2e  # verify all tests pass
+
+# On commit:
+npm version patch             # bumps 1.2.0 → 1.2.1 in package.json + git commit
+git push origin master
+
+# On push to origin (after minor bumps):
+npm version minor             # 1.2.1 → 1.3.0
+git push origin master --tags # pushes master + tag
+npm run deploy                # builds dist/ and pushes to gh-pages
+```
+
+**gh-pages deployment:** Pushes `dist/` contents to `gh-pages` branch so the app runs at `https://jakubtyniecki.github.io/graph-merge-viz/`. No archives or packaging — plain project files (HTML, JS, CSS from dist/).
+
+---
+
 ## TDD Directive (mandatory)
 
 For any change to `src/graph/**`: **write or update tests first**, then implement.
