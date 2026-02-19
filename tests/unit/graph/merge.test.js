@@ -96,6 +96,53 @@ describe('mergeGraphs — with base (deletions)', () => {
   });
 });
 
+describe('scoped merge with filtered base', () => {
+  it('scoped merge does not delete non-scope nodes from target', () => {
+    // base: A→B + D. source: A→B (D removed from source but D is NOT in scope)
+    // target: A→B + D (same as base). scope = ['B'].
+    // With filtered base, baseFiltered = {A, B, A→B} (D excluded, not upstream of B)
+    // → D should NOT be deleted from target
+    let baseGraph = createGraph();
+    baseGraph = addNode(addNode(addNode(baseGraph, createNode('A')), createNode('B')), createNode('D'));
+    baseGraph = addEdge(baseGraph, createEdge('A', 'B'));
+
+    let source = createGraph();
+    source = addNode(addNode(source, createNode('A')), createNode('B'));
+    source = addEdge(source, createEdge('A', 'B'));
+
+    let target = createGraph();
+    target = addNode(addNode(addNode(target, createNode('A')), createNode('B')), createNode('D'));
+    target = addEdge(target, createEdge('A', 'B'));
+
+    const scopeNodes = ['B'];
+    const filtered = filterUpstreamSubgraph(source, scopeNodes);
+    const baseFiltered = filterUpstreamSubgraph(baseGraph, scopeNodes);
+    const result = mergeGraphs(target, filtered, baseFiltered);
+    expect(result.nodes.map(n => n.label)).toContain('D');
+  });
+
+  it('scoped merge with full base (the bug) deletes non-scope nodes', () => {
+    // Same setup, but pass full base — D gets wrongly deleted
+    let baseGraph = createGraph();
+    baseGraph = addNode(addNode(addNode(baseGraph, createNode('A')), createNode('B')), createNode('D'));
+    baseGraph = addEdge(baseGraph, createEdge('A', 'B'));
+
+    let source = createGraph();
+    source = addNode(addNode(source, createNode('A')), createNode('B'));
+    source = addEdge(source, createEdge('A', 'B'));
+
+    let target = createGraph();
+    target = addNode(addNode(addNode(target, createNode('A')), createNode('B')), createNode('D'));
+    target = addEdge(target, createEdge('A', 'B'));
+
+    const scopeNodes = ['B'];
+    const filtered = filterUpstreamSubgraph(source, scopeNodes);
+    // Passing full base (the bug): D is in base but not in filtered → D gets deleted
+    const result = mergeGraphs(target, filtered, baseGraph);
+    expect(result.nodes.map(n => n.label)).not.toContain('D');
+  });
+});
+
 describe('filterUpstreamSubgraph', () => {
   it('returns original graph reference when scope is empty', () => {
     const g = buildGraph('A', 'B');
