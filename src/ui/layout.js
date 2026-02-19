@@ -817,17 +817,11 @@ export class LayoutManager {
         ? `${sourceName} \u00BB ${targetName}`
         : `${targetName} \u00AB ${sourceName}`;
 
-      const stratOptions = [
-        { value: 'mirror', label: 'Mirror' },
-        { value: 'push', label: 'Push' },
-        { value: 'scoped', label: 'Scoped' },
-        { value: 'none', label: 'None' },
-      ].map(o => `<option value="${o.value}" ${stratObj.strategy === o.value ? 'selected' : ''}>${o.label}</option>`).join('');
-
       return `
-        <div class="mgmt-row" data-idx="${idx}">
+        <div class="mgmt-row" data-idx="${idx}" data-key="${key}">
           <span class="mgmt-btn-label">${btnText}</span>
-          <select class="mgmt-strat-select" data-key="${key}" data-idx="${idx}">${stratOptions}</select>
+          <span class="mgmt-strat-label" title="Current strategy">${stratObj.strategy}</span>
+          <button class="mgmt-settings-btn btn-icon" data-idx="${idx}" title="Edit strategy">&#x2699;</button>
           <button class="mgmt-up-btn btn-icon" data-idx="${idx}" title="Move up" ${idx === 0 ? 'disabled' : ''}>&#x25B2;</button>
           <button class="mgmt-dn-btn btn-icon" data-idx="${idx}" title="Move down" ${idx === list.length - 1 ? 'disabled' : ''}>&#x25BC;</button>
           <button class="mgmt-delete-btn btn-danger" data-idx="${idx}" title="Delete">&#x00D7;</button>
@@ -883,30 +877,73 @@ export class LayoutManager {
           rerender();
         };
       });
-      dlg.querySelectorAll('.mgmt-strat-select').forEach(sel => {
-        sel.onchange = () => {
-          const key = sel.dataset.key;
-          const strat = sel.value;
-          if (strat === 'mirror') {
-            delete this.mergeStrategies[key];
-          } else {
-            const current = this._getStrategy(key);
-            this.mergeStrategies[key] = { strategy: strat, scopeNodes: current.scopeNodes || [] };
-          }
-          this._rerenderGutter(gutterKey);
-          window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
-          if (strat === 'scoped') {
-            const [sourceId, targetId] = key.split('\u2192');
-            const panelsMap = this._getPanels ? this._getPanels() : null;
-            const targetPanel = panelsMap?.get(targetId);
-            const sourcePanel = panelsMap?.get(sourceId);
-            if (targetPanel) {
-              scopeNodePickerDialog(targetPanel, sourcePanel, key, this.mergeStrategies, () => {
-                this._rerenderGutter(gutterKey);
-                window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
-              });
+      dlg.querySelectorAll('.mgmt-settings-btn').forEach(btn => {
+        btn.onclick = () => {
+          const idx = parseInt(btn.dataset.idx);
+          const rowEl = btn.closest('.mgmt-row');
+          const existing = rowEl.nextElementSibling;
+          if (existing?.classList.contains('mgmt-row-edit')) { existing.remove(); return; }
+          dlg.querySelectorAll('.mgmt-row-edit').forEach(el => el.remove());
+
+          const eKey = rowEl.dataset.key;
+          const stratObj = this._getStrategy(eKey);
+          const currentStrat = stratObj.strategy;
+
+          const stratOptions = ['mirror', 'push', 'scoped', 'none'].map(s =>
+            `<label style="display:flex;align-items:center;gap:4px;font-size:11px">
+              <input type="radio" name="mgmt-strat-${idx}" value="${s}" ${currentStrat === s ? 'checked' : ''}>
+              ${s.charAt(0).toUpperCase() + s.slice(1)}
+             </label>`
+          ).join('');
+
+          const [sId, tId] = eKey.split('\u2192');
+          const panelsMap = this._getPanels ? this._getPanels() : null;
+          const sourcePanel = panelsMap?.get(sId);
+          const targetPanel = panelsMap?.get(tId);
+          const specialTypes = targetPanel?.template?.specialTypes || [];
+          const allNodes = [
+            ...(targetPanel?.graph?.nodes || []),
+            ...(sourcePanel?.graph?.nodes || []),
+          ].filter((n, i, arr) => arr.findIndex(x => x.label === n.label) === i)
+           .filter(n => specialTypes.length === 0 || specialTypes.includes(n.type));
+          const currentScope = stratObj.scopeNodes || [];
+          const scopeHtml = allNodes.length > 0 ? `
+            <div id="mgmt-scope-${idx}" style="display:${currentStrat === 'scoped' ? 'block' : 'none'};margin-top:4px">
+              <div style="font-size:10px;color:var(--text-muted);margin-bottom:2px">Scope nodes:</div>
+              ${allNodes.map(n => `<label style="display:flex;align-items:center;gap:4px;font-size:11px">
+                <input type="checkbox" class="mgmt-scope-cb" value="${n.label}" ${currentScope.includes(n.label) ? 'checked' : ''}>
+                ${n.label}</label>`).join('')}
+            </div>` : '';
+
+          const editEl = document.createElement('div');
+          editEl.className = 'mgmt-row-edit';
+          editEl.innerHTML = `
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">${stratOptions}</div>
+            ${scopeHtml}
+            <button class="mgmt-apply-btn btn-primary" style="font-size:11px;padding:3px 8px;margin-top:4px">Apply</button>
+          `;
+          rowEl.after(editEl);
+
+          editEl.querySelectorAll(`input[name="mgmt-strat-${idx}"]`).forEach(radio => {
+            radio.onchange = () => {
+              const sd = editEl.querySelector(`#mgmt-scope-${idx}`);
+              if (sd) sd.style.display = radio.value === 'scoped' ? 'block' : 'none';
+            };
+          });
+
+          editEl.querySelector('.mgmt-apply-btn').onclick = () => {
+            const sel = editEl.querySelector(`input[name="mgmt-strat-${idx}"]:checked`)?.value || 'mirror';
+            const scopeNodes = [...editEl.querySelectorAll('.mgmt-scope-cb:checked')].map(cb => cb.value);
+            if (sel === 'mirror') {
+              delete this.mergeStrategies[eKey];
+            } else {
+              this.mergeStrategies[eKey] = { strategy: sel, scopeNodes };
             }
-          }
+            this._rerenderGutter(gutterKey);
+            window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+            editEl.remove();
+            rerender();
+          };
         };
       });
     };

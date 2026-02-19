@@ -564,3 +564,43 @@ test.describe('Panel header polish', () => {
     expect(borderColor).not.toBe('rgb(79, 195, 247)');
   });
 });
+
+// ─── Merge Management Per-Row Settings ───────────────────────────────────────
+
+test.describe('Merge management per-row settings', () => {
+  test('management rows have settings icon, not dropdown', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.merge-gutter-settings').first().dispatchEvent('click');
+    await expect(page.locator('dialog[open]')).toBeVisible();
+    await expect(page.locator('.mgmt-strat-select')).toHaveCount(0);
+    await page.locator('#mgmt-close-x').click();
+  });
+
+  test('settings icon expands inline edit section', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.merge-gutter-settings').first().dispatchEvent('click');
+    await expect(page.locator('dialog[open]')).toBeVisible();
+    await page.locator('.mgmt-settings-btn').first().click();
+    await expect(page.locator('.mgmt-row-edit')).toBeVisible();
+    await page.locator('#mgmt-close-x').click();
+  });
+
+  test('inline edit has strategy radio buttons', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.merge-gutter-settings').first().dispatchEvent('click');
+    await page.locator('.mgmt-settings-btn').first().click();
+    await expect(page.locator('.mgmt-row-edit input[type="radio"]').first()).toBeVisible();
+    await page.locator('#mgmt-close-x').click();
+  });
+
+  test('apply button collapses inline edit without closing modal', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('.merge-gutter-settings').first().dispatchEvent('click');
+    await page.locator('.mgmt-settings-btn').first().click();
+    await page.locator('.mgmt-apply-btn').click();
+    // Modal still open, inline edit gone
+    await expect(page.locator('dialog[open]')).toBeVisible();
+    await expect(page.locator('.mgmt-row-edit')).toHaveCount(0);
+    await page.locator('#mgmt-close-x').click();
+  });
+});
