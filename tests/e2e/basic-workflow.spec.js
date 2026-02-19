@@ -290,10 +290,10 @@ test.describe('Merge gutter redesign', () => {
     await expect(page.locator('#mgmt-close-x')).not.toBeVisible();
   });
 
-  test('merge button text uses » direction icon', async ({ page }) => {
+  test('merge button has direction icon', async ({ page }) => {
     await page.goto('/');
-    const btnText = await page.locator('.merge-btn-text').first().textContent();
-    expect(btnText).toMatch(/[»«]/);
+    const iconText = await page.locator('.merge-btn-icon').first().textContent();
+    expect(iconText).toMatch(/[»«]/);
   });
 
   test('no "No merge buttons" placeholder shown', async ({ page }) => {
