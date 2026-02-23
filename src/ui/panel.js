@@ -442,12 +442,12 @@ export class Panel {
     const sourceGraph = (strategy === 'scoped' && scopeNodes.length > 0)
       ? filterUpstreamSubgraph(incomingGraph, scopeNodes)
       : incomingGraph;
-    // push/sync = additive only (null base); mirror uses full baseGraph; scoped uses filtered baseGraph
+    // push/sync = additive only (null base); mirror uses full baseGraph; scoped mirrors within scope
     const baseForDiff = (strategy === 'push' || strategy === 'sync')
       ? null
-      : (strategy === 'scoped' && scopeNodes.length > 0 && this.baseGraph)
-        ? filterUpstreamSubgraph(this.baseGraph, scopeNodes)
-        : this.baseGraph;
+      : (strategy === 'scoped' && scopeNodes.length > 0)
+        ? filterUpstreamSubgraph(this.graph, scopeNodes)
+        : this.baseGraph ?? null;
     this.graph = mergeGraphs(this.graph, sourceGraph, baseForDiff);
     this.mergeDirection = direction;
     if (incomingExclusions) {

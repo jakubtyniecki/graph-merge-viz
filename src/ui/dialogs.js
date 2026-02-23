@@ -12,6 +12,31 @@ import { serializeTag as pathSerializeTag, formatPathTag as pathFormatTag, compu
 let _lastNodeType = null;
 let _lastEdgeType = null;
 
+// Panel color palettes
+const PANEL_BG_COLORS = [
+  '#2D1B2E', '#1B2D2E', '#2E2D1B', '#1B2E1F',
+  '#2B1F3A', '#1F3A2B', '#3A2B1F', '#1F2B3A',
+  '#3A1F2B', '#2E3A1B', '#1B3A2E', '#3A1B2E',
+  '#2A2A3E', '#3E2A2A', '#2A3E2A', '#3E3E2A',
+];
+const PANEL_BORDER_COLORS = [
+  '#F87171', '#FB923C', '#FBBF24', '#A3E635',
+  '#34D399', '#22D3EE', '#60A5FA', '#A78BFA',
+  '#F472B6', '#E879F9', '#C084FC', '#818CF8',
+  '#FDA4AF', '#FDE68A', '#A7F3D0', '#BFDBFE',
+];
+
+function colorPaletteHtml(colors, selected, prefix) {
+  const noneClass = `color-swatch-none${!selected ? ' selected' : ''}`;
+  const swatches = colors.map(c =>
+    `<div class="color-swatch${selected === c ? ' selected' : ''}" style="background:${c}" data-color="${c}" data-prefix="${prefix}" title="${c}"></div>`
+  ).join('');
+  return `<div class="color-palette-wrap">
+    <div class="${noneClass}" data-color="" data-prefix="${prefix}">Default</div>
+    <div class="color-palette">${swatches}</div>
+  </div>`;
+}
+
 /** Parse batch node label input: "A, B, C" or "P1-5" or mixed */
 function expandNodeLabels(input) {
   const labels = [];
@@ -210,23 +235,49 @@ export function infoDialog(title, message, panelEl = null) {
   });
 }
 
-/** Show a rename dialog, returns Promise<string|null> */
-export function renameDialog(currentName, panelEl = null) {
+/** Show panel settings dialog (name + border + background color). Returns Promise<{name,borderColor,bgColor}|null> */
+export function panelSettingsDialog(currentName, currentBorderColor, currentBgColor, panelEl = null) {
   return new Promise(resolve => {
     const dlg = openDialog(`
-      <h3>Rename Panel</h3>
+      <h3>Panel Settings</h3>
       <label>Name</label>
       <input id="dlg-name" type="text" value="${currentName}" autofocus>
+      <label style="margin-top:10px;display:block;font-size:12px">Border color</label>
+      ${colorPaletteHtml(PANEL_BORDER_COLORS, currentBorderColor, 'border')}
+      <label style="margin-top:10px;display:block;font-size:12px">Background color</label>
+      ${colorPaletteHtml(PANEL_BG_COLORS, currentBgColor, 'bg')}
       <div class="dialog-actions">
         <button id="dlg-cancel">Cancel</button>
-        <button id="dlg-ok" class="btn-primary">Rename</button>
+        <button id="dlg-ok" class="btn-primary">Apply</button>
       </div>
     `, panelEl);
+
+    let selectedBorder = currentBorderColor || null;
+    let selectedBg = currentBgColor || null;
+
+    dlg.addEventListener('click', e => {
+      const swatch = e.target.closest('[data-prefix]');
+      if (!swatch) return;
+      const prefix = swatch.dataset.prefix;
+      const color = swatch.dataset.color || null;
+      if (prefix === 'border') {
+        selectedBorder = color;
+        dlg.querySelectorAll('[data-prefix="border"]').forEach(s =>
+          s.classList.toggle('selected', s.dataset.color === (color || ''))
+        );
+      } else {
+        selectedBg = color;
+        dlg.querySelectorAll('[data-prefix="bg"]').forEach(s =>
+          s.classList.toggle('selected', s.dataset.color === (color || ''))
+        );
+      }
+    });
+
     dlg.querySelector('#dlg-cancel').onclick = () => { closeDialog(); resolve(null); };
     dlg.querySelector('#dlg-ok').onclick = () => {
       const newName = dlg.querySelector('#dlg-name').value.trim();
       closeDialog();
-      resolve(newName);
+      resolve({ name: newName, borderColor: selectedBorder, bgColor: selectedBg });
     };
     dlg.querySelector('#dlg-name').onkeydown = e => {
       if (e.key === 'Enter') dlg.querySelector('#dlg-ok').click();

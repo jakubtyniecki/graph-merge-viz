@@ -6,7 +6,16 @@
  *   | { type: "split", direction: "h" | "v", children: [LayoutNode, LayoutNode], sizes: [number, number] }
  */
 
-import { renameDialog, infoDialog, scopeNodePickerDialog, addMergeButtonDialog, openDialog, closeDialog } from './dialogs.js';
+import { panelSettingsDialog, infoDialog, scopeNodePickerDialog, addMergeButtonDialog, openDialog, closeDialog } from './dialogs.js';
+
+/** Compute relative luminance of a CSS hex color (#rrggbb) */
+function getLuminance(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const toLinear = c => c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
 
 const MIN_PANEL_SIZE_PX = 200;
 
@@ -250,6 +259,14 @@ export class LayoutManager {
     panel.className = 'panel';
     panel.dataset.panelId = node.id;
 
+    // Apply custom panel colors
+    if (node.borderColor) panel.style.borderColor = node.borderColor;
+    if (node.bgColor) {
+      panel.style.background = node.bgColor;
+      const textColor = getLuminance(node.bgColor) > 0.35 ? '#1a1a2e' : '#e0e0e0';
+      panel.style.setProperty('--panel-text', textColor);
+    }
+
     // Header
     const header = document.createElement('div');
     header.className = 'panel-header';
@@ -296,13 +313,13 @@ export class LayoutManager {
     nameOverlay.title = 'Click to rename';
     nameOverlay.textContent = displayName;
     nameOverlay.onclick = () => {
-      renameDialog(displayName, panel).then(newName => {
-        if (newName !== null) {
-          node.name = newName || undefined;
-          const newDisplay = newName || `Panel ${node.id}`;
-          nameOverlay.textContent = newDisplay;
-          // Update merge gutter labels by re-rendering
+      panelSettingsDialog(displayName, node.borderColor || null, node.bgColor || null, panel).then(result => {
+        if (result !== null) {
+          node.name = result.name || undefined;
+          node.borderColor = result.borderColor || undefined;
+          node.bgColor = result.bgColor || undefined;
           this.render();
+          window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
         }
       });
     };
@@ -897,10 +914,7 @@ export class LayoutManager {
           const currentStrat = stratObj.strategy;
 
           const stratOptions = ['mirror', 'push', 'scoped', 'none'].map(s =>
-            `<label style="display:flex;align-items:center;gap:4px;font-size:11px">
-              <input type="radio" name="mgmt-strat-${idx}" value="${s}" ${currentStrat === s ? 'checked' : ''}>
-              ${s.charAt(0).toUpperCase() + s.slice(1)}
-             </label>`
+            `<option value="${s}" ${currentStrat === s ? 'selected' : ''}>${s.charAt(0).toUpperCase() + s.slice(1)}</option>`
           ).join('');
 
           const [sId, tId] = eKey.split('\u2192');
@@ -925,21 +939,21 @@ export class LayoutManager {
           const editEl = document.createElement('div');
           editEl.className = 'mgmt-row-edit';
           editEl.innerHTML = `
-            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">${stratOptions}</div>
+            <div style="margin-bottom:4px">
+              <select id="mgmt-strat-select-${idx}" style="font-size:11px">${stratOptions}</select>
+            </div>
             ${scopeHtml}
             <button class="mgmt-apply-btn btn-primary" style="font-size:11px;padding:3px 8px;margin-top:4px">Apply</button>
           `;
           rowEl.after(editEl);
 
-          editEl.querySelectorAll(`input[name="mgmt-strat-${idx}"]`).forEach(radio => {
-            radio.onchange = () => {
-              const sd = editEl.querySelector(`#mgmt-scope-${idx}`);
-              if (sd) sd.style.display = radio.value === 'scoped' ? 'block' : 'none';
-            };
-          });
+          editEl.querySelector(`#mgmt-strat-select-${idx}`).onchange = (e) => {
+            const sd = editEl.querySelector(`#mgmt-scope-${idx}`);
+            if (sd) sd.style.display = e.target.value === 'scoped' ? 'block' : 'none';
+          };
 
           editEl.querySelector('.mgmt-apply-btn').onclick = () => {
-            const sel = editEl.querySelector(`input[name="mgmt-strat-${idx}"]:checked`)?.value || 'mirror';
+            const sel = editEl.querySelector(`#mgmt-strat-select-${idx}`).value || 'mirror';
             const scopeNodes = [...editEl.querySelectorAll('.mgmt-scope-cb:checked')].map(cb => cb.value);
             if (sel === 'mirror') {
               delete this.mergeStrategies[eKey];

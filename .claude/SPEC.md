@@ -27,7 +27,8 @@ npm run test:e2e     # Playwright E2E
 - Split any panel horizontally (≡) or vertically (⬒)
 - Close a panel (promote sibling), with confirmation
 - Add a new panel (70/30 split right)
-- Rename panels (click name → dialog)
+- Panel settings (click name → dialog): rename + border color + background color (16-color palette each)
+- Panel colors: 16 border colors (bright/saturated) + 16 bg colors (dark/muted); stored on LayoutNode, persist in session
 - Zoom panel tmux-style (⤢ or Escape) — only zoomed panel renders
 - Resize panels via drag handle in gutter
 - Per-panel layout algorithm: fcose / level-by-level / circle / concentric / breadthfirst / grid
@@ -75,7 +76,7 @@ npm run test:e2e     # Playwright E2E
 - **Push**: standard merge (incoming additions + deletions)
 - **Scoped**: only merge upstream subgraph of selected "special" nodes
 - **None**: disabled (button visible but no-op)
-- Strategy set via right-click → strategy picker on merge button
+- Strategy set via settings (⚙) gear icon in merge management modal → inline dropdown
 - Default: push strategy
 
 ### Merge Button Customization
@@ -247,7 +248,7 @@ PanelState = {
 }
 
 LayoutNode =
-  | { type: 'panel', id: string, name?: string }
+  | { type: 'panel', id: string, name?: string, borderColor?: string, bgColor?: string }
   | { type: 'split', direction: 'h'|'v', children: [LayoutNode, LayoutNode], sizes: [number, number] }
 
 MergeButton = { source: string, target: string }
@@ -276,7 +277,32 @@ Session = {
 4. Remove edges whose source or target was deleted
 5. Returns new Graph (no mutation)
 
-`filterUpstreamSubgraph(graph, scopeNodeLabels)`: For scoped merge — BFS/DFS backward from scope nodes, returns subgraph of all ancestors + scope nodes.
+`filterUpstreamSubgraph(graph, scopeNodeLabels)`: For scoped merge — BFS backward from scope nodes, returns subgraph of all ancestors + scope nodes.
+
+### Scoped Merge Algorithm
+Scoped merge acts as **mirror within scope**: the scoped subgraph in target becomes an exact copy of source's scoped subgraph; everything outside scope is untouched.
+
+```
+filteredSource = filterUpstreamSubgraph(source.graph, scopeNodes)
+filteredBase   = filterUpstreamSubgraph(target.graph, scopeNodes)  // current graph, NOT baseGraph
+result         = mergeGraphs(target.graph, filteredSource, filteredBase)
+```
+
+Key: using `target.graph` (not `target.baseGraph`) as base ensures:
+- Nodes in target's scope absent from source → deleted (mirror behavior)
+- Works even when target has no prior `baseGraph` (never been approved)
+
+### Panel Color Contrast Algorithm
+When a panel has a custom `bgColor`, text color is computed via WCAG relative luminance:
+
+```
+luminance(hex) = 0.2126 * linearize(R) + 0.7152 * linearize(G) + 0.0722 * linearize(B)
+  where linearize(c) = c/12.92 if c ≤ 0.03928, else ((c+0.055)/1.055)^2.4
+
+panelText = luminance > 0.35 ? '#1a1a2e' (dark) : '#e0e0e0' (light)
+```
+
+Applied as `--panel-text` CSS custom property on the `.panel` element; used by panel buttons and name overlay.
 
 ### Diff (`diff.js`)
 `computeDiff(base, current)`:

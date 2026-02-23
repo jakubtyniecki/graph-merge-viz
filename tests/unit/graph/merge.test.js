@@ -183,3 +183,114 @@ describe('filterUpstreamSubgraph', () => {
     expect(sub.nodes[0].label).toBe('A');
   });
 });
+
+describe('scoped mirror — fixed (uses target current graph as base)', () => {
+  // Simulate the FIXED panel.js scoped merge:
+  //   filteredSource = filterUpstreamSubgraph(source, scopeNodes)
+  //   filteredBase   = filterUpstreamSubgraph(target, scopeNodes)  ← key fix
+  //   result         = mergeGraphs(target, filteredSource, filteredBase)
+
+  it('deletes nodes that are in target scope but absent from source scope', () => {
+    // target: A→B, C→B, D (isolated). scope = ['B'] → C is upstream of B.
+    // source: A→B only (no C)
+    // Expected: C removed (was in scope, not in source). D preserved (outside scope).
+    let source = buildGraph('A', 'B');
+    source = addEdge(source, createEdge('A', 'B'));
+
+    let target = buildGraph('A', 'B', 'C', 'D');
+    target = addEdge(target, createEdge('A', 'B'));
+    target = addEdge(target, createEdge('C', 'B'));
+
+    const scopeNodes = ['B'];
+    const filteredSource = filterUpstreamSubgraph(source, scopeNodes);
+    const filteredBase = filterUpstreamSubgraph(target, scopeNodes);
+    const result = mergeGraphs(target, filteredSource, filteredBase);
+
+    const labels = result.nodes.map(n => n.label);
+    expect(labels).not.toContain('C'); // C was in scope, absent from source → deleted
+    expect(labels).toContain('D');     // D outside scope → preserved
+    expect(labels).toContain('A');
+    expect(labels).toContain('B');
+  });
+
+  it('adds nodes from source scope into target', () => {
+    // source: X→A→B. target: A→B (no X). scope = ['B'].
+    // Expected: X added to result.
+    let source = buildGraph('X', 'A', 'B');
+    source = addEdge(source, createEdge('X', 'A'));
+    source = addEdge(source, createEdge('A', 'B'));
+
+    let target = buildGraph('A', 'B');
+    target = addEdge(target, createEdge('A', 'B'));
+
+    const scopeNodes = ['B'];
+    const filteredSource = filterUpstreamSubgraph(source, scopeNodes);
+    const filteredBase = filterUpstreamSubgraph(target, scopeNodes);
+    const result = mergeGraphs(target, filteredSource, filteredBase);
+
+    expect(result.nodes.map(n => n.label)).toContain('X');
+  });
+
+  it('preserves target nodes outside the scope subgraph', () => {
+    // target: A→B, D, E (D and E isolated, not upstream of B). source: A→B.
+    // scope = ['B']. filteredBase = {A, B, A→B} — D, E not included.
+    // Expected: D, E survive (they are never in filteredBase so never candidates for deletion).
+    let source = buildGraph('A', 'B');
+    source = addEdge(source, createEdge('A', 'B'));
+
+    let target = buildGraph('A', 'B', 'D', 'E');
+    target = addEdge(target, createEdge('A', 'B'));
+
+    const scopeNodes = ['B'];
+    const filteredSource = filterUpstreamSubgraph(source, scopeNodes);
+    const filteredBase = filterUpstreamSubgraph(target, scopeNodes);
+    const result = mergeGraphs(target, filteredSource, filteredBase);
+
+    const labels = result.nodes.map(n => n.label);
+    expect(labels).toContain('D');
+    expect(labels).toContain('E');
+  });
+
+  it('overwrites props of nodes in scope from source', () => {
+    // source: A with props {x: '99'}→B. target: A with props {x: '1'}→B. scope = ['B'].
+    // Expected: A.props.x = '99' after merge.
+    let source = createGraph();
+    source = addNode(source, createNode('A', { x: '99' }));
+    source = addNode(source, createNode('B'));
+    source = addEdge(source, createEdge('A', 'B'));
+
+    let target = createGraph();
+    target = addNode(target, createNode('A', { x: '1' }));
+    target = addNode(target, createNode('B'));
+    target = addEdge(target, createEdge('A', 'B'));
+
+    const scopeNodes = ['B'];
+    const filteredSource = filterUpstreamSubgraph(source, scopeNodes);
+    const filteredBase = filterUpstreamSubgraph(target, scopeNodes);
+    const result = mergeGraphs(target, filteredSource, filteredBase);
+
+    expect(result.nodes.find(n => n.label === 'A').props.x).toBe('99');
+  });
+
+  it('mirrors scope correctly even when target has no prior baseGraph (first merge)', () => {
+    // Simulates panel with no baseGraph: target current state is used as base.
+    // target: A→B, C→B (C upstream of B). source: A→B only. scope = ['B'].
+    // filteredBase = filterUpstreamSubgraph(target, ['B']) — computed from target directly.
+    // Expected: C deleted, D (if any) preserved.
+    let source = buildGraph('A', 'B');
+    source = addEdge(source, createEdge('A', 'B'));
+
+    let target = buildGraph('A', 'B', 'C');
+    target = addEdge(target, createEdge('A', 'B'));
+    target = addEdge(target, createEdge('C', 'B'));
+
+    const scopeNodes = ['B'];
+    const filteredSource = filterUpstreamSubgraph(source, scopeNodes);
+    const filteredBase = filterUpstreamSubgraph(target, scopeNodes); // no separate baseGraph needed
+    const result = mergeGraphs(target, filteredSource, filteredBase);
+
+    expect(result.nodes.map(n => n.label)).not.toContain('C');
+    expect(result.nodes.map(n => n.label)).toContain('A');
+    expect(result.nodes.map(n => n.label)).toContain('B');
+  });
+});

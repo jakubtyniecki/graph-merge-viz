@@ -329,7 +329,7 @@ body {
   left: 8px;
   z-index: 1;
   background: rgba(0, 0, 0, 0.45);
-  color: var(--accent);
+  color: var(--panel-text, var(--accent));
   padding: 2px 8px;
   border-radius: 4px;
   font-size: 11px;
@@ -394,6 +394,64 @@ body {
   background: var(--border);
   margin: 0 4px;
   flex-shrink: 0;
+}
+
+/* Panel custom color: propagate --panel-text to header/action buttons */
+.panel button {
+  color: var(--panel-text, var(--text));
+}
+
+/* Color palette swatches in panel settings dialog */
+.color-palette-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.color-palette {
+  display: grid;
+  grid-template-columns: repeat(4, 20px);
+  gap: 4px;
+}
+
+.color-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.color-swatch:hover {
+  border-color: var(--accent);
+}
+
+.color-swatch.selected {
+  border-color: #fff;
+  outline: 1px solid var(--accent);
+}
+
+.color-swatch-none {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  color: var(--text-muted);
+  background: var(--bg);
+  align-self: center;
+}
+
+.color-swatch-none:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.color-swatch-none.selected {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 /* Buttons */
