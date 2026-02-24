@@ -235,56 +235,6 @@ export function infoDialog(title, message, panelEl = null) {
   });
 }
 
-/** Show panel settings dialog (name + border + background color). Returns Promise<{name,borderColor,bgColor}|null> */
-export function panelSettingsDialog(currentName, currentBorderColor, currentBgColor, panelEl = null) {
-  return new Promise(resolve => {
-    const dlg = openDialog(`
-      <h3>Panel Settings</h3>
-      <label>Name</label>
-      <input id="dlg-name" type="text" value="${currentName}" autofocus>
-      <label style="margin-top:10px;display:block;font-size:12px">Border color</label>
-      ${colorPaletteHtml(PANEL_BORDER_COLORS, currentBorderColor, 'border')}
-      <label style="margin-top:10px;display:block;font-size:12px">Background color</label>
-      ${colorPaletteHtml(PANEL_BG_COLORS, currentBgColor, 'bg')}
-      <div class="dialog-actions">
-        <button id="dlg-cancel">Cancel</button>
-        <button id="dlg-ok" class="btn-primary">Apply</button>
-      </div>
-    `, panelEl);
-
-    let selectedBorder = currentBorderColor || null;
-    let selectedBg = currentBgColor || null;
-
-    dlg.addEventListener('click', e => {
-      const swatch = e.target.closest('[data-prefix]');
-      if (!swatch) return;
-      const prefix = swatch.dataset.prefix;
-      const color = swatch.dataset.color || null;
-      if (prefix === 'border') {
-        selectedBorder = color;
-        dlg.querySelectorAll('[data-prefix="border"]').forEach(s =>
-          s.classList.toggle('selected', s.dataset.color === (color || ''))
-        );
-      } else {
-        selectedBg = color;
-        dlg.querySelectorAll('[data-prefix="bg"]').forEach(s =>
-          s.classList.toggle('selected', s.dataset.color === (color || ''))
-        );
-      }
-    });
-
-    dlg.querySelector('#dlg-cancel').onclick = () => { closeDialog(); resolve(null); };
-    dlg.querySelector('#dlg-ok').onclick = () => {
-      const newName = dlg.querySelector('#dlg-name').value.trim();
-      closeDialog();
-      resolve({ name: newName, borderColor: selectedBorder, bgColor: selectedBg });
-    };
-    dlg.querySelector('#dlg-name').onkeydown = e => {
-      if (e.key === 'Enter') dlg.querySelector('#dlg-ok').click();
-    };
-  });
-}
-
 /** Format props as "key=value" lines for textarea */
 function propsToText(props) {
   return Object.entries(props).map(([k, v]) => `${k}=${v}`).join('\n');
@@ -1279,8 +1229,8 @@ export function exclusionDialog(panel, edgeKey) {
   dlg.querySelector('#dlg-close-x').onclick = closeDialog;
 }
 
-/** Show panel options dialog (layout algorithm + path tracking) */
-export function panelOptionsDialog(panel) {
+/** Show panel options dialog (layout algorithm + path tracking + panel name/colors) */
+export function panelOptionsDialog(panel, layoutNode = null, onLayoutChange = null) {
   const panelEl = panel.panelEl;
   const algos = [
     { value: 'fcose', label: 'Force-Directed (fcose)' },
@@ -1307,11 +1257,22 @@ export function panelOptionsDialog(panel) {
     `}
   ` : '';
 
+  const nameHtml = layoutNode ? `
+    <label>Name</label>
+    <input id="dlg-name" type="text" value="${layoutNode.name || `Panel ${layoutNode.id}`}" autofocus>
+    <label style="margin-top:10px;display:block;font-size:12px">Border color</label>
+    ${colorPaletteHtml(PANEL_BORDER_COLORS, layoutNode.borderColor || null, 'border')}
+    <label style="margin-top:10px;display:block;font-size:12px">Background color</label>
+    ${colorPaletteHtml(PANEL_BG_COLORS, layoutNode.bgColor || null, 'bg')}
+  ` : '';
+
   const dlg = openDialog(`
     <div class="dialog-header">
       <h3>Panel Options</h3>
       <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
     </div>
+    ${nameHtml}
+    <div class="template-section-label" style="margin-top:12px">Graph Options</div>
     <label>Layout Algorithm</label>
     <select id="dlg-layout-algo">${options}</select>
     ${trackingHtml}
@@ -1320,6 +1281,29 @@ export function panelOptionsDialog(panel) {
     </div>
   `, panelEl);
 
+  let selectedBorder = layoutNode?.borderColor || null;
+  let selectedBg = layoutNode?.bgColor || null;
+
+  if (layoutNode) {
+    dlg.addEventListener('click', e => {
+      const swatch = e.target.closest('[data-prefix]');
+      if (!swatch) return;
+      const prefix = swatch.dataset.prefix;
+      const color = swatch.dataset.color || null;
+      if (prefix === 'border') {
+        selectedBorder = color;
+        dlg.querySelectorAll('[data-prefix="border"]').forEach(s =>
+          s.classList.toggle('selected', s.dataset.color === (color || ''))
+        );
+      } else {
+        selectedBg = color;
+        dlg.querySelectorAll('[data-prefix="bg"]').forEach(s =>
+          s.classList.toggle('selected', s.dataset.color === (color || ''))
+        );
+      }
+    });
+  }
+
   dlg.querySelector('#dlg-ok').onclick = () => {
     const algo = dlg.querySelector('#dlg-layout-algo').value;
     panel.setLayoutAlgorithm(algo);
@@ -1327,6 +1311,16 @@ export function panelOptionsDialog(panel) {
       const enabled = dlg.querySelector('#dlg-tracking')?.checked || false;
       if (enabled !== panel.pathTrackingEnabled) panel.setPathTracking(enabled);
     }
+
+    if (layoutNode && onLayoutChange) {
+      const newName = dlg.querySelector('#dlg-name').value.trim();
+      onLayoutChange({
+        name: newName,
+        borderColor: selectedBorder,
+        bgColor: selectedBg
+      });
+    }
+
     showToast('Options applied', 'success');
     closeDialog();
   };
