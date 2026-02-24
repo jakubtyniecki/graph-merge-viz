@@ -1,6 +1,6 @@
 import { showToast } from './toast.js';
 import { updateStatusBar } from './status-bar.js';
-import { editTemplateDialog, newSessionDialog } from './dialogs.js';
+import { editTemplateDialog, newSessionDialog, exportChoiceDialog } from './dialogs.js';
 import { loadGlobalTemplates, uniqueName, templateManagementModal } from './template-ui.js';
 import { defaultTemplate } from '../graph/template.js';
 
@@ -34,7 +34,7 @@ function setActiveSessionName(name) {
 }
 
 /** Migrate old format (state with X.Y keys) to new layout-based format */
-function migrateOldSession(session) {
+export function migrateOldSession(session) {
   if (!session.state) return session;
   if (session.layout) return session;
 
@@ -71,7 +71,7 @@ function migrateOldSession(session) {
 }
 
 /** Migrate sessions missing template field */
-function migrateTemplate(session) {
+export function migrateTemplate(session) {
   if (!session.template) {
     return { ...session, template: { name: 'Default', graphType: 'DG', nodeTypes: [], edgeTypes: [], specialTypes: [] } };
   }
@@ -83,7 +83,7 @@ function migrateTemplate(session) {
 }
 
 /** Migrate sessions missing path tracking fields on panel states */
-function migrateTrackingFields(session) {
+export function migrateTrackingFields(session) {
   if (!session.panels) return session;
   const panels = {};
   for (const [id, state] of Object.entries(session.panels)) {
@@ -95,6 +95,44 @@ function migrateTrackingFields(session) {
     };
   }
   return { ...session, panels };
+}
+
+/** Migrate layout nodes to ensure borderColor and bgColor exist */
+export function migrateLayoutColors(session) {
+  if (!session.layout || !session.layout.tree) return session;
+
+  const walk = (node) => {
+    if (node.type === 'panel') {
+      if (!node.hasOwnProperty('borderColor')) node.borderColor = undefined;
+      if (!node.hasOwnProperty('bgColor')) node.bgColor = undefined;
+    } else if (node.children) {
+      node.children.forEach(walk);
+    }
+  };
+
+  walk(session.layout.tree);
+  return session;
+}
+
+/** Generate a default layout tree for a set of panel IDs */
+export function generateDefaultLayout(panelIds) {
+  if (panelIds.length === 0) return { tree: null, nextId: 1 };
+  
+  let tree = { type: 'panel', id: panelIds[0] };
+  for (let i = 1; i < panelIds.length; i++) {
+    tree = {
+      type: 'split',
+      direction: 'v',
+      children: [tree, { type: 'panel', id: panelIds[i] }],
+      sizes: [Math.floor(100 * i / (i + 1)), Math.floor(100 / (i + 1))],
+    };
+  }
+  
+  // Find max ID to set nextId
+  const numericIds = panelIds.map(id => parseInt(id)).filter(id => !isNaN(id));
+  const maxId = numericIds.length > 0 ? Math.max(...numericIds) : panelIds.length;
+  
+  return { tree, nextId: maxId + 1 };
 }
 
 export function getSessionTemplate() {
@@ -119,7 +157,7 @@ function saveCurrentSession() {
   saveSessions(sessions);
 }
 
-function restoreSession(name) {
+export function restoreSession(name) {
   if (!_panels || !_layoutManager) return;
   const sessions = loadSessions();
   let session = sessions[name];
@@ -129,6 +167,7 @@ function restoreSession(name) {
   session = migrateOldSession(session);
   session = migrateTemplate(session);
   session = migrateTrackingFields(session);
+  session = migrateLayoutColors(session);
   sessions[name] = session;
   saveSessions(sessions);
 
@@ -330,7 +369,10 @@ function toggleHelp() {
 }
 
 /** Export current session as a JSON file download */
-function exportSession() {
+export async function exportSession() {
+  const choice = await exportChoiceDialog();
+  if (!choice) return;
+
   saveCurrentSession();
   const name = getActiveSessionName();
   const sessions = loadSessions();
@@ -340,21 +382,50 @@ function exportSession() {
     return;
   }
 
-  const data = JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), sessionName: name, ...session }, null, 2);
+  let exportData;
+  if (choice === 'data') {
+    const panels = {};
+    for (const [id, state] of Object.entries(session.panels)) {
+      panels[id] = {
+        graph: state.graph,
+        pathTrackingEnabled: state.pathTrackingEnabled,
+        exclusions: state.exclusions
+      };
+    }
+    exportData = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      exportType: 'data',
+      sessionName: name,
+      template: session.template,
+      panels
+    };
+  } else {
+    exportData = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      exportType: 'session',
+      sessionName: name,
+      ...session
+    };
+  }
+
+  const data = JSON.stringify(exportData, null, 2);
   const blob = new Blob([data], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   const dateStr = new Date().toISOString().slice(0, 10);
+  const prefix = choice === 'data' ? 'data' : 'session';
   const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
-  a.download = `session-${safeName}-${dateStr}.json`;
+  a.download = `${prefix}-${safeName}-${dateStr}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  showToast(`Exported session "${name}"`, 'success');
+  showToast(`Exported ${choice === 'data' ? 'data' : 'session'} "${name}"`, 'success');
 }
 
 /** Import a session from a JSON file */
-function importSession() {
+export function importSession() {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.json';
@@ -369,6 +440,10 @@ function importSession() {
       } catch {
         showToast('Invalid JSON file', 'error');
         return;
+      }
+
+      if (!data.layout && data.panels) {
+        data.layout = generateDefaultLayout(Object.keys(data.panels));
       }
 
       if (!data.layout || !data.panels) {
@@ -401,6 +476,47 @@ function importSession() {
     reader.readAsText(file);
   };
   input.click();
+}
+
+export function disableSessionControls() {
+  const container = document.getElementById('session-controls');
+  if (!container) return;
+  container.classList.add('disabled-controls');
+  container.querySelectorAll('button, select').forEach(el => el.disabled = true);
+}
+
+export function enableSessionControls() {
+  const container = document.getElementById('session-controls');
+  if (!container) return;
+  container.classList.remove('disabled-controls');
+  container.querySelectorAll('button, select').forEach(el => el.disabled = false);
+}
+
+/** Load a specific scenario (replaces current session in memory but does NOT save to localStorage) */
+export function loadScenarioSession(scenarioData) {
+  if (!_panels || !_layoutManager) return;
+
+  // Restore template
+  _currentTemplate = scenarioData.template || defaultTemplate();
+  if (_onTemplateChange) _onTemplateChange(_currentTemplate);
+
+  // Restore layout
+  if (scenarioData.layout) {
+    _layoutManager.setLayout(scenarioData.layout);
+  }
+
+  // Restore panel states
+  if (scenarioData.panels) {
+    for (const [id, panel] of _panels) {
+      if (scenarioData.panels[id]) {
+        panel.setState(scenarioData.panels[id]);
+        // Also restore baseGraph if provided (scenarios might want unapproved changes)
+        if (scenarioData.panels[id].baseGraph) {
+          panel.baseGraph = JSON.parse(JSON.stringify(scenarioData.panels[id].baseGraph));
+        }
+      }
+    }
+  }
 }
 
 export function setupSession(panels, layoutManager, onTemplateChange) {

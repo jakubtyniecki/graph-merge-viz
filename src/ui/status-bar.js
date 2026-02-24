@@ -1,6 +1,9 @@
 /** Status bar for showing storage usage and session stats */
 
+import { TEST_SCENARIOS } from './test-scenarios.js';
+
 let statusBarEl = null;
+let isTestMode = false;
 
 /** Get localStorage usage in bytes */
 function getLocalStorageUsage() {
@@ -76,8 +79,10 @@ export function updateStatusBar() {
 
   // Left side: storage + session stats
   let leftContent = `Storage: ${formatBytes(usage)}`;
-  if (stats) {
+  if (stats && !isTestMode) {
     leftContent += ` | ${stats.totalNodes}n ${stats.totalEdges}e ${stats.totalPanels}p ${stats.sessionCount}s`;
+  } else if (isTestMode) {
+    leftContent += ` | TEST MODE ACTIVE`;
   }
   leftEl.textContent = leftContent;
 
@@ -88,6 +93,42 @@ export function updateStatusBar() {
   } else {
     rightEl.textContent = '';
   }
+}
+
+/** Wire test mode UI */
+export function setupTestMode(callbacks) {
+  const toggle = document.getElementById('test-mode-toggle');
+  const select = document.getElementById('test-scenario-select');
+  if (!toggle || !select) return;
+
+  // Populate scenarios
+  TEST_SCENARIOS.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.name;
+    opt.textContent = s.name;
+    opt.title = s.description;
+    select.appendChild(opt);
+  });
+
+  toggle.onchange = () => {
+    isTestMode = toggle.checked;
+    select.disabled = !isTestMode;
+    
+    if (isTestMode) {
+      callbacks.onActivate();
+    } else {
+      select.value = '';
+      callbacks.onDeactivate();
+    }
+    updateStatusBar();
+  };
+
+  select.onchange = () => {
+    const scenario = TEST_SCENARIOS.find(s => s.name === select.value);
+    if (scenario) {
+      callbacks.onScenarioChange(scenario);
+    }
+  };
 }
 
 /** Initialize status bar */

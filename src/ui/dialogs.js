@@ -1471,7 +1471,35 @@ export function newSessionDialog(globalTemplates) {
       resolve({ name, templateName });
     };
     dlg.querySelector('#dlg-name').onkeydown = e => {
-      if (e.key === 'Enter') dlg.querySelector('#dlg-ok').click();
+      if (e.key === 'Enter')     dlg.querySelector('#dlg-ok').click();
     };
   });
 }
+
+/** Show export choice dialog: Data Only vs Full Session. Returns Promise<'data' | 'session' | null> */
+export function exportChoiceDialog() {
+  return new Promise(resolve => {
+    const dlg = openDialog(`
+      <h3>Export Session</h3>
+      <p>Choose what to include in the export:</p>
+      <div style="display:flex;flex-direction:column;gap:10px;margin:15px 0">
+        <button id="export-data" class="btn-primary" style="padding:10px">
+          <strong>Data Only</strong><br>
+          <span style="font-size:11px;font-weight:normal;opacity:0.9">Graphs, tracking settings, and exclusions</span>
+        </button>
+        <button id="export-full" class="btn-secondary" style="padding:10px">
+          <strong>Full Session</strong><br>
+          <span style="font-size:11px;font-weight:normal;opacity:0.9">Everything including approval history and layout</span>
+        </button>
+      </div>
+      <div class="dialog-actions">
+        <button id="dlg-cancel">Cancel</button>
+      </div>
+    `);
+    dlg.querySelector('#export-data').onclick = () => { closeDialog(); resolve('data'); };
+    dlg.querySelector('#export-full').onclick = () => { closeDialog(); resolve('session'); };
+    dlg.querySelector('#dlg-cancel').onclick = () => { closeDialog(); resolve(null); };
+    dlg.onclose = () => resolve(null);
+  });
+}
+
