@@ -3,11 +3,11 @@ import fcose from 'cytoscape-fcose';
 import { Panel } from './ui/panel.js';
 import { LayoutManager } from './ui/layout.js';
 import { addNodeDialog, addEdgeDialog, importGraphDialog, confirmDialog, infoDialog, changelogDialog, changesetSummaryDialog, panelOptionsDialog } from './ui/dialogs.js';
-import { setupSession, getSessionTemplate } from './ui/session.js';
+import { setupSession, getSessionTemplate, disableSessionControls, enableSessionControls, loadScenarioSession, restoreSession } from './ui/session.js';
 import { setupClipboard } from './ui/clipboard.js';
 import { setupContextMenu } from './ui/context-menu.js';
 import { showToast } from './ui/toast.js';
-import { setupStatusBar } from './ui/status-bar.js';
+import { setupStatusBar, setupTestMode } from './ui/status-bar.js';
 import { setupTemplateUI } from './ui/template-ui.js';
 
 cytoscape.use(fcose);
@@ -181,6 +181,25 @@ setupSession(panels, layoutManager, (template) => {
 
 setupClipboard(() => panels);
 setupStatusBar();
+
+setupTestMode({
+  onActivate: () => {
+    // Current state is already saved via panel-change listener in session.js
+    disableSessionControls();
+    showToast('Test Mode: Session controls disabled. Changes not saved.', 'info');
+  },
+  onDeactivate: () => {
+    enableSessionControls();
+    // Restore current session
+    const active = localStorage.getItem('graph-merge-active-session') || 'Default';
+    restoreSession(active);
+    showToast('Test Mode deactivated. Session restored.', 'info');
+  },
+  onScenarioChange: (scenario) => {
+    loadScenarioSession(scenario.build());
+    showToast(`Loaded scenario: ${scenario.name}`, 'success');
+  }
+});
 
 // Initial merge button state update
 requestAnimationFrame(() => layoutManager.updateMergeButtonStates(panels));
