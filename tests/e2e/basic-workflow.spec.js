@@ -132,8 +132,8 @@ test.describe('Panel layout', () => {
 
   test('panel rename updates the displayed name', async ({ page }) => {
     await page.goto('/');
-    // Panel name is now a canvas overlay
-    await page.locator('.panel-name-overlay').first().click();
+    // Use gear icon to open settings
+    await page.locator('.panel-header-left [data-action="panel-options"]').first().click();
     // Wait for rename dialog to open before filling
     await expect(page.locator('#dlg-name')).toBeVisible();
     await page.locator('#dlg-name').fill('MyRenamedPanel');
@@ -730,25 +730,26 @@ test.describe('Merge management per-row settings', () => {
 test.describe('Panel colors', () => {
   test('panel settings dialog opens from name overlay click', async ({ page }) => {
     await page.goto('/');
-    await page.locator('.panel-name-overlay').first().click();
+    // Overlay is now display-only, but we still have the gear button in header
+    await page.locator('.panel-header-left [data-action="panel-options"]').first().click();
     await expect(page.locator('dialog[open]')).toBeVisible();
     await expect(page.locator('#dlg-name')).toBeVisible();
-    await page.locator('#dlg-cancel').click();
+    await page.locator('#dlg-close-x').click();
   });
 
   test('panel settings dialog shows border and background color palettes', async ({ page }) => {
     await page.goto('/');
-    await page.locator('.panel-name-overlay').first().click();
+    await page.locator('.panel-header-left [data-action="panel-options"]').first().click();
     await expect(page.locator('dialog[open] .color-palette')).toHaveCount(2);
     await expect(page.locator('dialog[open] .color-swatch')).toHaveCount(32); // 16 + 16
-    await page.locator('#dlg-cancel').click();
+    await page.locator('#dlg-close-x').click();
   });
 
   test('each palette has a Default option', async ({ page }) => {
     await page.goto('/');
-    await page.locator('.panel-name-overlay').first().click();
+    await page.locator('.panel-header-left [data-action="panel-options"]').first().click();
     await expect(page.locator('dialog[open] .color-swatch-none')).toHaveCount(2);
-    await page.locator('#dlg-cancel').click();
+    await page.locator('#dlg-close-x').click();
   });
 
   test('selecting a background color and applying updates panel background', async ({ page }) => {
@@ -756,8 +757,8 @@ test.describe('Panel colors', () => {
     const panel = page.locator('.panel').first();
     const bgBefore = await panel.evaluate(el => el.style.background);
 
-    // Open dialog, click first bg swatch (index 0 of second .color-palette)
-    await page.locator('.panel-name-overlay').first().click();
+    // Open dialog via gear
+    await page.locator('.panel-header-left [data-action="panel-options"]').first().click();
     const bgSwatches = page.locator('dialog[open] .color-palette').nth(1).locator('.color-swatch');
     await bgSwatches.first().click();
     await page.locator('#dlg-ok').click();
@@ -772,7 +773,7 @@ test.describe('Panel colors', () => {
     await page.goto('/');
     const panel = page.locator('.panel').first();
 
-    await page.locator('.panel-name-overlay').first().click();
+    await page.locator('.panel-header-left [data-action="panel-options"]').first().click();
     // First .color-palette is border colors
     const borderSwatches = page.locator('dialog[open] .color-palette').first().locator('.color-swatch');
     await borderSwatches.first().click();
@@ -787,10 +788,10 @@ test.describe('Panel colors', () => {
     const panel = page.locator('.panel').first();
     const bgBefore = await panel.evaluate(el => el.style.background);
 
-    await page.locator('.panel-name-overlay').first().click();
+    await page.locator('.panel-header-left [data-action="panel-options"]').first().click();
     const bgSwatches = page.locator('dialog[open] .color-palette').nth(1).locator('.color-swatch');
     await bgSwatches.first().click();
-    await page.locator('#dlg-cancel').click();
+    await page.locator('#dlg-close-x').click();
 
     const bgAfter = await panel.evaluate(el => el.style.background);
     expect(bgAfter).toBe(bgBefore);
@@ -799,26 +800,26 @@ test.describe('Panel colors', () => {
   test('colors persist across dialog reopen', async ({ page }) => {
     await page.goto('/');
     // Set a background color
-    await page.locator('.panel-name-overlay').first().click();
+    await page.locator('.panel-header-left [data-action="panel-options"]').first().click();
     const bgSwatches = page.locator('dialog[open] .color-palette').nth(1).locator('.color-swatch');
     const chosenColor = await bgSwatches.first().evaluate(el => el.dataset.color);
     await bgSwatches.first().click();
     await page.locator('#dlg-ok').click();
 
     // Reopen dialog — the selected swatch should have .selected class
-    await page.locator('.panel-name-overlay').first().click();
+    await page.locator('.panel-header-left [data-action="panel-options"]').first().click();
     const selectedSwatch = page.locator('dialog[open] .color-palette').nth(1).locator('.color-swatch.selected');
     await expect(selectedSwatch).toHaveCount(1);
     const selectedColor = await selectedSwatch.evaluate(el => el.dataset.color);
     expect(selectedColor).toBe(chosenColor);
-    await page.locator('#dlg-cancel').click();
+    await page.locator('#dlg-close-x').click();
   });
 
   test('panel background color persists across page reload (session save)', async ({ page }) => {
     await page.goto('/');
 
     // Set a background color
-    await page.locator('.panel-name-overlay').first().click();
+    await page.locator('.panel-header-left [data-action="panel-options"]').first().click();
     const bgSwatches = page.locator('dialog[open] .color-palette').nth(1).locator('.color-swatch');
     await bgSwatches.first().click();
     await page.locator('#dlg-ok').click();

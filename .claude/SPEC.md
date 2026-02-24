@@ -27,12 +27,12 @@ npm run test:e2e     # Playwright E2E
 - Split any panel horizontally (≡) or vertically (⬒)
 - Close a panel (promote sibling), with confirmation
 - Add a new panel (70/30 split right)
-- Panel settings (click name → dialog): rename + border color + background color (16-color palette each)
+- Panel settings (gear icon → dialog): rename + border color + background color (16-color palette each) + layout algorithm + path tracking toggle
 - Panel colors: 16 border colors (bright/saturated) + 16 bg colors (dark/muted); stored on LayoutNode, persist in session
 - Zoom panel tmux-style (⤢ or Escape) — only zoomed panel renders
 - Resize panels via drag handle in gutter
 - Per-panel layout algorithm: fcose / level-by-level / circle / concentric / breadthfirst / grid
-- Panel header: name · undo (←) · redo (→) · refresh (↻) · merge direction · approval time
+- Panel header: gear (⚙) · undo (←) · redo (→) · refresh (↻) · merge direction · approval time
 
 ### Graph Editing
 - Add nodes (unique label per panel, optional type if template has nodeTypes)
@@ -137,10 +137,15 @@ npm run test:e2e     # Playwright E2E
 - Import graph JSON into panel (validates + rejects invalid)
 - Export panel graph as JSON file (download)
 - Import/export global template list as JSON
-- Import/export full session as JSON
+- Import/export session as JSON with two modes:
+  - **Data only**: Graphs, tracking settings, and exclusions (no history/layout)
+  - **Full Session**: Complete session including approval history and layout
+- Auto-layout generation on import for files missing layout tree (backward compatible)
 
 ### Status Bar & UI
 - Compact status: `15n 12e 4p 2s` (nodes / edges / pending changes / sessions)
+- Storage usage display in bytes/KB/MB
+- Test Mode (toggle in status bar): Select from predefined scenarios (Mirror, Push, Scoped, Approval) to demo/test features without affecting persistent storage.
 - Toast notifications for errors/success
 - Help dialog (`?` button in header)
 - Templates button in header (opens template management modal)
@@ -188,6 +193,8 @@ src/
 │   ├── session.js           # LocalStorage sessions + migration
 │   ├── template-ui.js       # Template management modal (global templates)
 │   ├── clipboard.js         # Copy/paste subgraph + branch operations
+│   ├── status-bar.js        # Status bar usage stats + Test Mode
+│   ├── test-scenarios.js    # Predefined scenarios for Test Mode
 │   └── toast.js             # showToast(message, type)
 └── cytoscape/
     └── styles.js            # baseStyles + buildStylesForTemplate(template)
@@ -245,6 +252,14 @@ PanelState = {
   pathTrackingEnabled: boolean
   showExclusions: boolean
   exclusions: Record<string, string[]>  // edgeKey → serialized tag list
+  _approvalHistory: ApprovalEntry[] // history of past approvals
+}
+
+ApprovalEntry = {
+  timestamp: string                // ISO
+  graph: Graph
+  baseGraph: Graph | null
+  diffSummary: string              // e.g. "+2n, -1e"
 }
 
 LayoutNode =
@@ -257,12 +272,22 @@ Session = {
   layout: {
     tree: LayoutNode
     nextId: number
-    mergeStrategies: Record<string, string>    // 'source→target' → strategy name
+    mergeStrategies: Record<string, string | { strategy: string, scopeNodes: string[] }>
     mergeButtonLists: Record<string, MergeButton[]>  // gutterKey → button list
   }
   panels: Record<string, PanelState>
   template: Template
   savedAt: string
+}
+
+ExportedSession = {
+  version: number
+  exportedAt: string
+  exportType: 'data' | 'session'
+  sessionName: string
+  template: Template
+  panels: Record<string, Partial<PanelState>>
+  layout?: object                  // same as Session.layout, omitted in 'data' mode
 }
 ```
 
@@ -305,12 +330,15 @@ panelText = luminance > 0.35 ? '#1a1a2e' (dark) : '#e0e0e0' (light)
 Applied as `--panel-text` CSS custom property on the `.panel` element; used by panel buttons and name overlay.
 
 ### Diff (`diff.js`)
-`computeDiff(base, current)`:
-- Returns `[]` if `base` is null (nothing to diff against)
-- Compare node sets: added = in current not in base; removed = in base not in current; modified = same key, different props
-- Same for edges by `source→target` key
+...
+### Auto-Layout Generation (`session.js`)
+`generateDefaultLayout(panelIds)`: Used during "Data only" import.
+1. Creates a vertical split tree by nesting panels sequentially.
+2. Sizes panels proportionally (50/50, then 66/33, then 75/25 etc.) to fill space.
+3. Sets `nextId` to `max(panelIds) + 1`.
 
 ### Path Tracking (`path-tracking.js`)
+
 `computePathTags(graph, specialTypeIds)`:
 - Topological sort of graph (appends cycle members at end)
 - For each edge, compute set of PathTags (combinations of special type nodes reachable downstream)
@@ -356,12 +384,16 @@ Applied as `--panel-text` CSS custom property on the `.panel` element; used by p
 5. Toggle "Show exclusions" checkbox → excluded paths hidden
 
 ### Merge Customization
-1. Right-click merge button → strategy → Scoped → pick special nodes
-2. `+` button in gutter → add "3 >> 1" merge button
-3. Drag buttons to reorder
-4. Right-click → Delete to remove a button
+...
+### Test Mode
+1. Enable "Test Mode" toggle in status bar.
+2. Select "Scoped" or "Approval" from the scenario dropdown.
+3. System loads a predefined graph state for demonstration.
+4. Changes made in Test Mode are not auto-saved to localStorage.
+5. Disable toggle to return to previous active session.
 
 ### Multi-Session Workflow
+
 1. Save session "v1", switch to new session "v2"
 2. Export "v1" as JSON → import on different browser → layout restored
 
