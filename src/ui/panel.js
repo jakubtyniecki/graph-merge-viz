@@ -586,6 +586,21 @@ export class Panel {
     return true;
   }
 
+  /** Apply a historical approval entry to the current graph via merge */
+  applyFromHistory(entry, index) {
+    this._pushHistory();
+    this.graph = mergeGraphs(this.graph, deepClone(entry.graph), this.baseGraph ?? null);
+    if (entry.exclusions) {
+      this.exclusions = mergeExclusions(this.exclusions, entry.exclusions, entry.pathTrackingEnabled || false);
+    }
+    this._syncCytoscape();
+    this._applyDiffClasses();
+    this._recomputePathTrackingAsync();
+    this._updateHeader();
+    this._emitChange();
+    showToast(`Applied approval #${index + 1} to panel ${this.id}`, 'info');
+  }
+
   /** Get selected nodes/edges as a subgraph */
   getSelectedSubgraph() {
     const selected = this.cy.$(':selected');

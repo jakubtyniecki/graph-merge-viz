@@ -3,10 +3,10 @@ import { importFromFile } from '../graph/serializer.js';
 import { computeDiff } from '../graph/diff.js';
 import { formatDiffSummary, formatGroupedDiffSummary } from './panel.js';
 import cytoscape from 'cytoscape';
-import { baseStyles } from '../cytoscape/styles.js';
+import { baseStyles, buildStylesForTemplate } from '../cytoscape/styles.js';
 import { GRAPH_TYPES, defaultTemplate } from '../graph/template.js';
 import { deepClone } from '../graph/model.js';
-import { serializeTag as pathSerializeTag, formatPathTag as pathFormatTag, computePathTags, propagateExclusions } from '../graph/path-tracking.js';
+import { serializeTag as pathSerializeTag, formatPathTag as pathFormatTag, computePathTags, propagateExclusions, isNodeFullyExcluded } from '../graph/path-tracking.js';
 
 // Remember last-used types across dialogs
 let _lastNodeType = null;
@@ -203,6 +203,38 @@ export function closeDialog() {
     _removeAllOverlays(_overlayPanel);
     _overlayPanel = null;
   }
+}
+
+// Second (floating) dialog element for approval preview — independent of the main shared dialog
+let _previewDialogEl = null;
+
+function getPreviewDialog() {
+  if (!_previewDialogEl) {
+    _previewDialogEl = document.createElement('dialog');
+    _previewDialogEl.className = 'approval-preview-dialog';
+    document.body.appendChild(_previewDialogEl);
+  }
+  return _previewDialogEl;
+}
+
+function openPreviewDialog(html) {
+  const dlg = getPreviewDialog();
+  dlg.innerHTML = html;
+  dlg.removeAttribute('style');
+  dlg.style.position = 'fixed';
+  dlg.style.left = '50%';
+  dlg.style.top = '50%';
+  dlg.style.transform = 'translate(-50%, -50%)';
+  dlg.style.margin = '0';
+  dlg.showModal();
+  const dragHandle = dlg.querySelector('.dialog-header');
+  if (dragHandle) makeDraggable(dlg, dragHandle);
+  return dlg;
+}
+
+function closePreviewDialog() {
+  if (_previewDialogEl?.open) _previewDialogEl.close();
+  if (_previewDialogEl) _previewDialogEl.innerHTML = '';
 }
 
 /** Show a confirmation dialog, returns Promise<boolean> */
@@ -559,7 +591,7 @@ export function changesetSummaryDialog(panel) {
   `, panel.panelEl).querySelector('#dlg-close-x').onclick = closeDialog;
 }
 
-/** Show changelog dialog — split-view: list on left, inline preview on right */
+/** Show changelog dialog — simple list with Preview buttons opening the floating preview dialog */
 export function changelogDialog(panel) {
   const history = panel._approvalHistory || [];
 
@@ -592,94 +624,41 @@ export function changelogDialog(panel) {
       <h3>Approval History</h3>
       <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
     </div>
-    <div class="changelog-split">
-      <div class="changelog-split-list">${listHtml}</div>
-      <div id="changelog-preview-pane" style="display:none;flex:1;flex-direction:column;min-width:260px"></div>
-    </div>
+    ${listHtml}
   `, panel.panelEl);
-
-  let previewCy = null;
-
-  const closePreview = () => {
-    if (previewCy) { try { previewCy.destroy(); } catch (e) {} previewCy = null; }
-    const pane = dlg.querySelector('#changelog-preview-pane');
-    pane.style.display = 'none';
-    pane.innerHTML = '';
-    dlg.classList.remove('changelog-with-preview');
-    dlg.querySelectorAll('.changelog-entry').forEach(el => el.classList.remove('active'));
-  };
 
   dlg.querySelectorAll('.btn-preview').forEach(btn => {
     btn.onclick = () => {
       const index = parseInt(btn.dataset.index);
-      const entry = history[index];
-      const pane = dlg.querySelector('#changelog-preview-pane');
-      if (previewCy) { try { previewCy.destroy(); } catch (e) {} previewCy = null; }
-
       dlg.querySelectorAll('.changelog-entry').forEach(el => el.classList.remove('active'));
       btn.closest('.changelog-entry').classList.add('active');
-
-      const title = `#${index + 1} \u2014 ${new Date(entry.timestamp).toLocaleTimeString()}`;
-      pane.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:6px">
-          <span style="font-size:11px;font-weight:600">${title}</span>
-          <button id="preview-close-pane" class="btn-close-icon" title="Close preview">&#x2715;</button>
-        </div>
-        <div id="preview-inline-canvas" style="flex:1;min-height:220px;border:1px solid var(--border);border-radius:3px"></div>
-      `;
-      pane.style.display = 'flex';
-      dlg.classList.add('changelog-with-preview');
-
-      const layoutName = (panel.layoutAlgorithm && panel.layoutAlgorithm !== 'level-by-level')
-        ? panel.layoutAlgorithm : 'fcose';
-
-      const elements = [];
-      for (const node of entry.graph.nodes) {
-        elements.push({ group: 'nodes', data: { id: node.label, label: node.label } });
-      }
-      for (const edge of entry.graph.edges) {
-        const key = `${edge.source}\u2192${edge.target}`;
-        elements.push({ group: 'edges', data: { id: key, source: edge.source, target: edge.target } });
-      }
-
-      requestAnimationFrame(() => {
-        const canvasEl = pane.querySelector('#preview-inline-canvas');
-        if (!canvasEl || !canvasEl.isConnected) return;
-        previewCy = cytoscape({
-          container: canvasEl,
-          elements,
-          style: baseStyles,
-          layout: { name: layoutName, animate: false, fit: true, padding: 20 },
-          autoungrabify: true,
-          userZoomingEnabled: true,
-          userPanningEnabled: true,
-        });
-      });
-
-      pane.querySelector('#preview-close-pane').onclick = closePreview;
+      openApprovalPreview(history[index], index, panel);
     };
   });
 
   dlg.querySelector('#dlg-close-x').onclick = () => {
-    closePreview();
+    closePreviewDialog();
     closeDialog();
   };
 }
 
-/** Show enhanced approval preview with maximize/minimize and diff toggle */
-export function approvalPreviewDialog(entry, index, panel) {
-  const panelEl = panel.panelEl;
+/** Show enhanced approval preview as a floating second dialog above the changelog list */
+export function openApprovalPreview(entry, index, panel) {
   const hasBaseline = entry.baseGraph !== null && entry.baseGraph !== undefined;
   const title = `Approval #${index + 1} — ${new Date(entry.timestamp).toLocaleTimeString()}`;
-
   const toggleDisabledAttr = hasBaseline ? '' : 'disabled title="No baseline available for this entry"';
+  const hasTracking = (panel.template?.specialTypes?.length ?? 0) > 0;
+  const trackingCheckHtml = hasTracking ? `
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;white-space:nowrap">
+      <input type="checkbox" id="preview-tracking-cb" ${entry.pathTrackingEnabled ? 'checked' : ''}> Path tracking
+    </label>` : '';
 
-  const dlg = openDialog(`
-    <div class="preview-header">
-      <h3 style="margin:0">${title}</h3>
+  const dlg = openPreviewDialog(`
+    <div class="dialog-header">
+      <h3 style="margin:0;font-size:13px">${title}</h3>
       <div style="display:flex;gap:4px;align-items:center">
         <button id="preview-maximize" class="btn-icon" title="Maximize/minimize preview">&#x2922;</button>
-        <button id="dlg-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
+        <button id="preview-close-x" class="btn-close-icon" title="Close">&#x2715;</button>
       </div>
     </div>
     <div class="preview-canvas" id="preview-canvas"></div>
@@ -690,14 +669,10 @@ export function approvalPreviewDialog(entry, index, panel) {
         <button id="toggle-approved" class="preview-toggle-btn active">Approved State</button>
         <button id="toggle-changeset" class="preview-toggle-btn" ${toggleDisabledAttr}>Changeset View</button>
       </div>
+      ${trackingCheckHtml}
+      <button id="preview-apply" style="margin-left:auto;white-space:nowrap">Apply to Current</button>
     </div>
-  `, panelEl);
-
-  // Default size
-  dlg.style.minWidth = '420px';
-  dlg.style.minHeight = '380px';
-  dlg.style.maxWidth = '80vw';
-  dlg.style.maxHeight = '80vh';
+  `);
 
   const canvasEl = dlg.querySelector('#preview-canvas');
   const infoPanelEl = dlg.querySelector('#preview-info-panel');
@@ -714,18 +689,14 @@ export function approvalPreviewDialog(entry, index, panel) {
       dlg.style.margin = '0';
       dlg.style.width = 'calc(100vw - 40px)';
       dlg.style.height = 'calc(100vh - 40px)';
-      dlg.style.maxWidth = 'none';
-      dlg.style.maxHeight = 'none';
     } else {
-      dlg.style.position = '';
-      dlg.style.left = '';
-      dlg.style.top = '';
-      dlg.style.transform = '';
-      dlg.style.margin = '';
+      dlg.style.position = 'fixed';
+      dlg.style.left = '50%';
+      dlg.style.top = '50%';
+      dlg.style.transform = 'translate(-50%, -50%)';
+      dlg.style.margin = '0';
       dlg.style.width = '';
       dlg.style.height = '';
-      dlg.style.maxWidth = '80vw';
-      dlg.style.maxHeight = '80vh';
     }
     if (!infoPanelEl.classList.contains('visible')) {
       cy.resize();
@@ -733,19 +704,18 @@ export function approvalPreviewDialog(entry, index, panel) {
     }
   };
 
-  // Build elements for approved state (plain)
+  // Build elements with type data for proper color rendering
   const buildApprovedElements = () => {
     const elements = [];
     for (const node of entry.graph.nodes) {
-      elements.push({ group: 'nodes', data: { id: node.label, label: node.label } });
+      elements.push({ group: 'nodes', data: { id: node.label, label: node.label, type: node.type || null } });
     }
     for (const edge of entry.graph.edges) {
-      elements.push({ group: 'edges', data: { id: `${edge.source}→${edge.target}`, source: edge.source, target: edge.target } });
+      elements.push({ group: 'edges', data: { id: `${edge.source}→${edge.target}`, source: edge.source, target: edge.target, type: edge.type || null } });
     }
     return elements;
   };
 
-  // Build elements for changeset view (diff-highlighted)
   const buildChangesetElements = () => {
     if (!hasBaseline) return buildApprovedElements();
     const diffs = computeDiff(entry.baseGraph, entry.graph);
@@ -756,7 +726,7 @@ export function approvalPreviewDialog(entry, index, panel) {
       const action = diffMap.get(node.label) || null;
       elements.push({
         group: 'nodes',
-        data: { id: node.label, label: node.label },
+        data: { id: node.label, label: node.label, type: node.type || null },
         classes: action ? `diff-${action}` : '',
       });
     }
@@ -765,17 +735,16 @@ export function approvalPreviewDialog(entry, index, panel) {
       const action = diffMap.get(key) || null;
       elements.push({
         group: 'edges',
-        data: { id: key, source: edge.source, target: edge.target },
+        data: { id: key, source: edge.source, target: edge.target, type: edge.type || null },
         classes: action ? `diff-${action}` : '',
       });
     }
-    // Add ghost nodes/edges for removed elements
     if (entry.baseGraph) {
       const currentNodeLabels = new Set(entry.graph.nodes.map(n => n.label));
       const currentEdgeKeys = new Set(entry.graph.edges.map(e => `${e.source}→${e.target}`));
       for (const node of entry.baseGraph.nodes) {
         if (!currentNodeLabels.has(node.label)) {
-          elements.push({ group: 'nodes', data: { id: node.label, label: node.label }, classes: 'diff-removed' });
+          elements.push({ group: 'nodes', data: { id: node.label, label: node.label, type: node.type || null }, classes: 'diff-removed' });
         }
       }
       for (const edge of entry.baseGraph.edges) {
@@ -783,7 +752,7 @@ export function approvalPreviewDialog(entry, index, panel) {
         if (!currentEdgeKeys.has(key)) {
           const allNodes = new Set([...currentNodeLabels, ...entry.baseGraph.nodes.map(n => n.label)]);
           if (allNodes.has(edge.source) && allNodes.has(edge.target)) {
-            elements.push({ group: 'edges', data: { id: key, source: edge.source, target: edge.target }, classes: 'diff-removed' });
+            elements.push({ group: 'edges', data: { id: key, source: edge.source, target: edge.target, type: edge.type || null }, classes: 'diff-removed' });
           }
         }
       }
@@ -812,6 +781,7 @@ export function approvalPreviewDialog(entry, index, panel) {
           }
         });
       }
+      allNodes.forEach(n => { if (!levels.has(n.id())) levels.set(n.id(), 0); });
       const maxLevel = Math.max(...levels.values(), 0);
       const containerH = cyInstance.container()?.clientHeight || 400;
       const step = containerH / (maxLevel + 2);
@@ -828,7 +798,7 @@ export function approvalPreviewDialog(entry, index, panel) {
   const cy = cytoscape({
     container: canvasEl,
     elements: buildApprovedElements(),
-    style: baseStyles,
+    style: buildStylesForTemplate(panel.template),
     layout: { name: 'preset', animate: false },
     autoungrabify: true,
     userZoomingEnabled: true,
@@ -836,27 +806,41 @@ export function approvalPreviewDialog(entry, index, panel) {
   });
   runPreviewLayout(cy);
 
-  // Apply path tracking styles if entry had tracking enabled
-  if (entry.pathTrackingEnabled && panel.template?.specialTypes?.length > 0) {
+  // Path tracking visuals using standard classes (same as main panel)
+  const applyTrackingVisuals = (enabled) => {
+    cy.edges().removeClass('edge-excluded edge-all-excluded');
+    cy.nodes().removeClass('node-fully-excluded');
+    if (!enabled || !hasTracking) return;
     const specialTypes = panel.template.specialTypes;
     const pathTags = computePathTags(entry.graph, specialTypes);
-    const effectiveExclusions = propagateExclusions(
-      entry.graph, entry.exclusions || {}, pathTags, specialTypes
-    );
-    for (const [edgeKey, tags] of pathTags) {
-      if (tags.length === 0) continue;
-      const excluded = effectiveExclusions.get(edgeKey) || new Set();
-      const allExcluded = tags.every(t => excluded.has(pathSerializeTag(t, specialTypes)));
-      const cyEdge = cy.$id(edgeKey);
-      if (cyEdge.length) cyEdge.addClass(allExcluded ? 'path-excluded' : 'path-tracked');
+    const effectiveExclusions = propagateExclusions(entry.graph, entry.exclusions || {}, pathTags, specialTypes);
+    for (const edge of entry.graph.edges) {
+      const key = `${edge.source}→${edge.target}`;
+      const tags = pathTags.get(key) || [];
+      const excluded = effectiveExclusions.get(key) || new Set();
+      const cyEdge = cy.$id(key);
+      if (cyEdge.empty()) continue;
+      if (excluded.size > 0) cyEdge.addClass('edge-excluded');
+      if (tags.length > 0 && tags.every(t => excluded.has(pathSerializeTag(t, specialTypes)))) cyEdge.addClass('edge-all-excluded');
     }
-    cy.style()
-      .selector('.path-tracked').style({ 'line-color': '#4fc3f7', 'width': 3 })
-      .selector('.path-excluded').style({ 'line-color': '#666', 'line-style': 'dashed' })
-      .update();
+    for (const node of entry.graph.nodes) {
+      if (isNodeFullyExcluded(entry.graph, node.label, pathTags, effectiveExclusions, specialTypes)) {
+        cy.$id(node.label).addClass('node-fully-excluded');
+      }
+    }
+  };
+
+  let trackingEnabled = entry.pathTrackingEnabled && hasTracking;
+  if (trackingEnabled) applyTrackingVisuals(true);
+
+  if (hasTracking) {
+    dlg.querySelector('#preview-tracking-cb')?.addEventListener('change', e => {
+      trackingEnabled = e.target.checked;
+      applyTrackingVisuals(trackingEnabled);
+    });
   }
 
-  // Toggle buttons
+  // Mode toggle (Approved State / Changeset View)
   let currentMode = 'approved';
   const btnApproved = dlg.querySelector('#toggle-approved');
   const btnChangeset = dlg.querySelector('#toggle-changeset');
@@ -866,19 +850,16 @@ export function approvalPreviewDialog(entry, index, panel) {
     currentMode = mode;
     btnApproved.classList.toggle('active', mode === 'approved');
     btnChangeset.classList.toggle('active', mode === 'changeset');
-
     cy.elements().remove();
-    const newElements = mode === 'changeset' ? buildChangesetElements() : buildApprovedElements();
-    cy.add(newElements);
+    cy.add(mode === 'changeset' ? buildChangesetElements() : buildApprovedElements());
     runPreviewLayout(cy);
+    if (trackingEnabled) applyTrackingVisuals(true);
   };
 
   btnApproved.onclick = () => switchMode('approved');
-  if (hasBaseline) {
-    btnChangeset.onclick = () => switchMode('changeset');
-  }
+  if (hasBaseline) btnChangeset.onclick = () => switchMode('changeset');
 
-  // Footer info button — toggle inline info panel (avoids nested dialog layering bug)
+  // Info panel (inline, avoids nesting dialogs)
   const infoBtn = dlg.querySelector('#preview-info');
   let infoVisible = false;
   infoBtn.onclick = () => {
@@ -914,9 +895,17 @@ export function approvalPreviewDialog(entry, index, panel) {
     }
   };
 
-  dlg.querySelector('#dlg-close-x').onclick = () => {
+  // Apply to Current — merges historical state into current panel graph
+  dlg.querySelector('#preview-apply').onclick = async () => {
+    const ok = await confirmDialog('Apply History Entry', `Apply approval #${index + 1} state to current graph?`);
+    if (!ok) return;
+    panel.applyFromHistory(entry, index);
+    closePreviewDialog();
+  };
+
+  dlg.querySelector('#preview-close-x').onclick = () => {
     try { cy.destroy(); } catch (e) {}
-    closeDialog();
+    closePreviewDialog();
   };
 }
 
