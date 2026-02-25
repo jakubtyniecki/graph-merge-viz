@@ -339,6 +339,7 @@ body {
   min-height: 28px;
   display: flex;
   align-items: center;
+  cursor: default;
 }
 
 .panel-info {

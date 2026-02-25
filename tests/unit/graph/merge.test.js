@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mergeGraphs, filterUpstreamSubgraph } from '../../../src/graph/merge.js';
+import { mergeGraphs, filterUpstreamSubgraph, computeUnionScope } from '../../../src/graph/merge.js';
 import { createGraph, addNode, addEdge, createNode, createEdge } from '../../../src/graph/model.js';
 
 function buildGraph(...labels) {
@@ -292,5 +292,117 @@ describe('scoped mirror — fixed (uses target current graph as base)', () => {
     expect(result.nodes.map(n => n.label)).not.toContain('C');
     expect(result.nodes.map(n => n.label)).toContain('A');
     expect(result.nodes.map(n => n.label)).toContain('B');
+  });
+});
+
+describe('computeUnionScope', () => {
+  it('includes nodes reachable via source edges not present in target', () => {
+    // Source: P5→P4→P3→S1. Target: P5→P4 (P4 not connected to S1).
+    // Union BFS from S1 must reach P4 via source edge P4→P3→S1.
+    let source = buildGraph('S1', 'P3', 'P4', 'P5');
+    source = addEdge(source, createEdge('P5', 'P4'));
+    source = addEdge(source, createEdge('P4', 'P3'));
+    source = addEdge(source, createEdge('P3', 'S1'));
+
+    let target = buildGraph('S1', 'P3', 'P4', 'P5', 'P8');
+    target = addEdge(target, createEdge('P5', 'P4'));
+    target = addEdge(target, createEdge('P8', 'P4'));
+    // P4 is NOT connected to P3/S1 in target
+
+    const scope = computeUnionScope(source, target, ['S1']);
+    expect(scope.has('S1')).toBe(true);
+    expect(scope.has('P3')).toBe(true);
+    expect(scope.has('P4')).toBe(true); // reachable via source edge P4→P3
+    expect(scope.has('P5')).toBe(true);
+    expect(scope.has('P8')).toBe(true); // reachable via target edge P8→P4
+  });
+
+  it('deletes target nodes only reachable via combined edge traversal', () => {
+    // Source: P4→P3→S1, P1→S1, P2→S1, P6→P3
+    // Target: P8→P4, P5→P4, P7→P3, P11→P3, P1→S1, P2→S1 (P4 NOT connected to P3 in target)
+    // Scope = ['S1']. Using union scope: P8 (via P8→P4→P3→S1 combined) is in scope.
+    // sourceFiltered should NOT contain P8 (not in source).
+    // baseForDiff (targetFiltered with unionScope) DOES contain P8.
+    // → P8 should be deleted.
+    let source = buildGraph('S1', 'P1', 'P2', 'P3', 'P4', 'P6');
+    source = addEdge(source, createEdge('P4', 'P3'));
+    source = addEdge(source, createEdge('P6', 'P3'));
+    source = addEdge(source, createEdge('P3', 'S1'));
+    source = addEdge(source, createEdge('P1', 'S1'));
+    source = addEdge(source, createEdge('P2', 'S1'));
+
+    let target = buildGraph('S1', 'P1', 'P2', 'P3', 'P4', 'P5', 'P7', 'P8', 'P11', 'C1', 'R1');
+    target = addEdge(target, createEdge('P8', 'P4'));
+    target = addEdge(target, createEdge('P5', 'P4'));
+    target = addEdge(target, createEdge('P7', 'P3'));
+    target = addEdge(target, createEdge('P11', 'P3'));
+    target = addEdge(target, createEdge('P3', 'S1'));
+    target = addEdge(target, createEdge('P1', 'C1'));
+    target = addEdge(target, createEdge('R1', 'C1'));
+    // C1 is NOT connected to S1
+
+    const scopeNodes = ['S1'];
+    const unionScope = computeUnionScope(source, target, scopeNodes);
+
+    const sourceFiltered = {
+      nodes: source.nodes.filter(n => unionScope.has(n.label)),
+      edges: source.edges.filter(e => unionScope.has(e.source) && unionScope.has(e.target)),
+    };
+    const baseForDiff = {
+      nodes: target.nodes.filter(n => unionScope.has(n.label)),
+      edges: target.edges.filter(e => unionScope.has(e.source) && unionScope.has(e.target)),
+    };
+
+    const result = mergeGraphs(target, sourceFiltered, baseForDiff);
+    const labels = result.nodes.map(n => n.label);
+
+    // Deletions: P7 (in target scope, not in source), P8 (same), P5 (not in source)
+    expect(labels).not.toContain('P8'); // P8 deleted (in scope via combined edges, not in source)
+    expect(labels).not.toContain('P7'); // P7 deleted (in scope via target edge P7→P3, not in source)
+    // Additions: P6 (in source, not in target)
+    expect(labels).toContain('P6');
+    // Preserved outside scope
+    expect(labels).toContain('C1');
+    expect(labels).toContain('R1');
+    // S1 preserved
+    expect(labels).toContain('S1');
+  });
+
+  it('does not include nodes unreachable from scope in combined graph', () => {
+    // C1 and R1 are connected to each other but not to S1 in either graph.
+    let source = buildGraph('S1', 'P1');
+    source = addEdge(source, createEdge('P1', 'S1'));
+
+    let target = buildGraph('S1', 'P1', 'C1', 'R1');
+    target = addEdge(target, createEdge('P1', 'S1'));
+    target = addEdge(target, createEdge('R1', 'C1'));
+
+    const scope = computeUnionScope(source, target, ['S1']);
+    expect(scope.has('S1')).toBe(true);
+    expect(scope.has('P1')).toBe(true);
+    expect(scope.has('C1')).toBe(false); // not reachable from S1 backward
+    expect(scope.has('R1')).toBe(false); // not reachable from S1 backward
+  });
+
+  it('returns only scope node itself when no upstream edges exist', () => {
+    const source = buildGraph('S1');
+    const target = buildGraph('S1', 'X');
+    const scope = computeUnionScope(source, target, ['S1']);
+    expect(scope.has('S1')).toBe(true);
+    expect(scope.has('X')).toBe(false);
+  });
+
+  it('handles multiple scope nodes', () => {
+    let source = buildGraph('A', 'B', 'X');
+    source = addEdge(source, createEdge('X', 'A'));
+
+    let target = buildGraph('A', 'B', 'Y');
+    target = addEdge(target, createEdge('Y', 'B'));
+
+    const scope = computeUnionScope(source, target, ['A', 'B']);
+    expect(scope.has('A')).toBe(true);
+    expect(scope.has('B')).toBe(true);
+    expect(scope.has('X')).toBe(true); // upstream of A via source
+    expect(scope.has('Y')).toBe(true); // upstream of B via target
   });
 });

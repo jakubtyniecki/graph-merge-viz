@@ -1,7 +1,7 @@
 import cytoscape from 'cytoscape';
 import { buildStylesForTemplate } from '../cytoscape/styles.js';
 import { computeDiff } from '../graph/diff.js';
-import { mergeGraphs, filterUpstreamSubgraph } from '../graph/merge.js';
+import { mergeGraphs, filterUpstreamSubgraph, computeUnionScope } from '../graph/merge.js';
 import { createGraph, deepClone, isEmpty, nodeKey, edgeKey, getAncestorSubgraph } from '../graph/model.js';
 import { exportToFile } from '../graph/serializer.js';
 import { showToast } from './toast.js';
@@ -438,16 +438,27 @@ export class Panel {
 
     // Case 2: Normal merge
     this._pushHistory();
-    // Scoped: filter source to upstream of scope nodes, then use mirror logic
-    const sourceGraph = (strategy === 'scoped' && scopeNodes.length > 0)
-      ? filterUpstreamSubgraph(incomingGraph, scopeNodes)
-      : incomingGraph;
-    // push/sync = additive only (null base); mirror uses full baseGraph; scoped mirrors within scope
-    const baseForDiff = (strategy === 'push' || strategy === 'sync')
-      ? null
-      : (strategy === 'scoped' && scopeNodes.length > 0)
-        ? filterUpstreamSubgraph(this.graph, scopeNodes)
-        : this.baseGraph ?? null;
+    // Scoped: compute union scope from both graphs, filter each, then mirror within scope
+    let sourceGraph, baseForDiff;
+    if (strategy === 'scoped' && scopeNodes.length > 0) {
+      const scope = computeUnionScope(incomingGraph, this.graph, scopeNodes);
+      sourceGraph = {
+        nodes: incomingGraph.nodes.filter(n => scope.has(n.label)),
+        edges: incomingGraph.edges.filter(e => scope.has(e.source) && scope.has(e.target)),
+      };
+      baseForDiff = {
+        nodes: this.graph.nodes.filter(n => scope.has(n.label)),
+        edges: this.graph.edges.filter(e => scope.has(e.source) && scope.has(e.target)),
+      };
+    } else if (strategy === 'push' || strategy === 'sync') {
+      // push/sync = additive only (null base)
+      sourceGraph = incomingGraph;
+      baseForDiff = null;
+    } else {
+      // mirror: uses full baseGraph
+      sourceGraph = incomingGraph;
+      baseForDiff = this.baseGraph ?? null;
+    }
     this.graph = mergeGraphs(this.graph, sourceGraph, baseForDiff);
     this.mergeDirection = direction;
     if (incomingExclusions) {

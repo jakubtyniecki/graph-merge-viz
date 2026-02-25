@@ -302,19 +302,30 @@ ExportedSession = {
 4. Remove edges whose source or target was deleted
 5. Returns new Graph (no mutation)
 
-`filterUpstreamSubgraph(graph, scopeNodeLabels)`: For scoped merge — BFS backward from scope nodes, returns subgraph of all ancestors + scope nodes.
+`filterUpstreamSubgraph(graph, scopeNodeLabels)`: BFS backward from scope nodes within a single graph, returns subgraph of all ancestors + scope nodes.
+
+`computeUnionScope(sourceGraph, targetGraph, scopeNodeIds)`: For scoped merge — BFS backward from scope nodes using the **combined edge set** of both source and target graphs. Returns `Set<nodeLabel>` of all nodes in scope. This ensures nodes reachable through either graph's edges are included, so deletions work correctly even when connectivity differs between source and target.
 
 ### Scoped Merge Algorithm
 Scoped merge acts as **mirror within scope**: the scoped subgraph in target becomes an exact copy of source's scoped subgraph; everything outside scope is untouched.
 
+Scope is computed over the union of source and target edges so nodes only reachable via one graph's edges (e.g. connected in source but disconnected in target) are still considered in-scope for deletion.
+
 ```
-filteredSource = filterUpstreamSubgraph(source.graph, scopeNodes)
-filteredBase   = filterUpstreamSubgraph(target.graph, scopeNodes)  // current graph, NOT baseGraph
-result         = mergeGraphs(target.graph, filteredSource, filteredBase)
+// 1. Compute union scope from combined edges of both graphs
+scope = computeUnionScope(source.graph, target.graph, scopeNodes)
+
+// 2. Filter each graph to union scope
+filteredSource = { nodes/edges of source within scope }
+filteredBase   = { nodes/edges of target within scope }  // current graph, NOT baseGraph
+
+// 3. Standard merge with deletions
+result = mergeGraphs(target.graph, filteredSource, filteredBase)
 ```
 
-Key: using `target.graph` (not `target.baseGraph`) as base ensures:
-- Nodes in target's scope absent from source → deleted (mirror behavior)
+Key: using union scope ensures:
+- Nodes in target scope (via either graph's edges) absent from source → deleted (mirror behavior)
+- Nodes outside scope in both graphs → preserved (C1, R1, R2 etc.)
 - Works even when target has no prior `baseGraph` (never been approved)
 
 ### Panel Color Contrast Algorithm

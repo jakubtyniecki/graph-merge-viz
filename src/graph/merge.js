@@ -29,6 +29,36 @@ export function filterUpstreamSubgraph(graph, scopeNodeIds) {
 }
 
 /**
+ * Compute the union scope: BFS backward from scope nodes using combined edges
+ * from both source and target graphs. Returns Set<nodeLabel> of all nodes in scope.
+ * This ensures nodes reachable through EITHER graph's edges are included.
+ */
+export function computeUnionScope(sourceGraph, targetGraph, scopeNodeIds) {
+  if (!scopeNodeIds || scopeNodeIds.length === 0) return new Set();
+
+  const allEdges = [...sourceGraph.edges, ...targetGraph.edges];
+  const allNodeLabels = new Set([
+    ...sourceGraph.nodes.map(n => n.label),
+    ...targetGraph.nodes.map(n => n.label),
+  ]);
+
+  const visited = new Set(scopeNodeIds.filter(id => allNodeLabels.has(id)));
+  const queue = [...visited];
+
+  while (queue.length > 0) {
+    const nodeId = queue.shift();
+    for (const edge of allEdges) {
+      if (edge.target === nodeId && !visited.has(edge.source) && allNodeLabels.has(edge.source)) {
+        visited.add(edge.source);
+        queue.push(edge.source);
+      }
+    }
+  }
+
+  return visited;
+}
+
+/**
  * Merge incoming graph into target graph.
  * Incoming wins on conflicts (property overwrites).
  * If incomingBaseGraph is provided, deletions are also applied:

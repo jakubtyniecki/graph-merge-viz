@@ -154,7 +154,18 @@ document.getElementById('app').addEventListener('click', async e => {
     }
     case 'import': importGraphDialog(panel); break;
     case 'export': panel.exportGraph(); break;
-    case 'panel-options': panelOptionsDialog(panel); break;
+    case 'panel-options': {
+      const layoutNode = layoutManager._findPanelNode(layoutManager.tree, panelId);
+      const result = await panelOptionsDialog(panel, layoutNode);
+      if (result) {
+        layoutNode.name = result.name || undefined;
+        layoutNode.borderColor = result.borderColor || undefined;
+        layoutNode.bgColor = result.bgColor || undefined;
+        layoutManager.render();
+        window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
+      }
+      break;
+    }
   }
 });
 

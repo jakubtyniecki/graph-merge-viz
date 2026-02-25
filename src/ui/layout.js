@@ -6,7 +6,7 @@
  *   | { type: "split", direction: "h" | "v", children: [LayoutNode, LayoutNode], sizes: [number, number] }
  */
 
-import { panelSettingsDialog, infoDialog, scopeNodePickerDialog, addMergeButtonDialog, openDialog, closeDialog } from './dialogs.js';
+import { infoDialog, scopeNodePickerDialog, addMergeButtonDialog, openDialog, closeDialog } from './dialogs.js';
 
 /** Compute relative luminance of a CSS hex color (#rrggbb) */
 function getLuminance(hex) {
@@ -310,19 +310,7 @@ export class LayoutManager {
     // Panel name overlay (top-left of canvas)
     const nameOverlay = document.createElement('div');
     nameOverlay.className = 'panel-name-overlay';
-    nameOverlay.title = 'Click to rename';
     nameOverlay.textContent = displayName;
-    nameOverlay.onclick = () => {
-      panelSettingsDialog(displayName, node.borderColor || null, node.bgColor || null, panel).then(result => {
-        if (result !== null) {
-          node.name = result.name || undefined;
-          node.borderColor = result.borderColor || undefined;
-          node.bgColor = result.bgColor || undefined;
-          this.render();
-          window.dispatchEvent(new CustomEvent('panel-change', { detail: { type: 'layout' } }));
-        }
-      });
-    };
     canvas.appendChild(nameOverlay);
 
     // Diff overlay (summary of changes)
